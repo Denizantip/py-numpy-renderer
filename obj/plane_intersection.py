@@ -2,7 +2,7 @@ from enum import IntFlag, auto
 
 import numpy as np
 
-from core import Face
+# from core import Face
 
 
 class Intersect(IntFlag):
@@ -22,32 +22,30 @@ def normalize_plane(plane):
 
 
 def line_plane_intersection(line_point1, line_point2, plane_coefficients):
-    # cartesian_point1 = line_point1[:3] / line_point1[3]
-    # cartesian_point2 = line_point2[:3] / line_point2[3]
-    # line_direction = cartesian_point2 - cartesian_point1
     line_direction = line_point2 - line_point1
-    # line_direction[3] = 1  # Homogenous
 
-    denominator = plane_coefficients @ np.append(line_direction, 1)
+    denominator = plane_coefficients @ line_direction
     if abs(denominator) < 1e-10:
         return None  # No intersection (parallel)
     # weight needed for texture coordinate interpolation
-    weight = -(plane_coefficients @ np.append(line_point1, 1)) / denominator
+    weight = -(plane_coefficients @ line_point1) / denominator
     # print('T coeff', t)
     if 0 <= weight <= 1:
         intersection_point = line_point1 + weight * line_direction
 
-        return intersection_point, weight
+        return intersection_point
 
     return None  # No intersection between segment points
 
 
-def classify_point(plane, point):
-    distance = plane[0] * point[0] + plane[1] * point[1] + plane[2] * point[2] + plane[3]
-    if distance < 0:
-        return False
-    else:
-        return True
+def classify_point(point):
+    # return (point[3] > point[:3]).all() and (-point[3] > point[:3]).all()
+    return ((point[3] > point[:3]) & (-point[3] < point[:3])).all()
+
+
+def is_visible(point, plane):
+    distance = plane @ point
+    return distance >= 0
 
 
 def extract_frustum_planes(matrix):
@@ -66,8 +64,9 @@ def extract_frustum_planes(matrix):
     return planes
 
 
-def sutherland_hodgman_3d(polygon: Face, frustum_planes):
-    output_list = polygon
+def sutherland_hodgman_3d(face, frustum_planes):
+    output_list = list(face)
+
     # Iterate over all planes
     for plane_coefficients in frustum_planes:
         input_list = output_list
@@ -77,32 +76,106 @@ def sutherland_hodgman_3d(polygon: Face, frustum_planes):
             break
 
         s = input_list[-1]
-        previous_point_location = classify_point(plane_coefficients, s)
+        previous_point_location = is_visible(s, plane_coefficients)
 
         for point in input_list:
-            current_point_location = classify_point(plane_coefficients, point)
+            current_point_location = is_visible(point, plane_coefficients)
 
             if current_point_location:
                 if not previous_point_location:
-                    intersect_point, weight = line_plane_intersection(s, point, plane_coefficients)
-                    uv = interpolate_coordinates(s, point, weight)
-                    # need to add uv into uv buffer (index)
+                    intersect_point = line_plane_intersection(s, point, plane_coefficients)
                     # intersection point to vertex buffer
                     if intersect_point is not None:
                         output_list.append(intersect_point)
                     # print('Weight: ', calculate_weight(s, point, intersect_point))
                 output_list.append(point)
             elif previous_point_location:
-                intersect_point, weight = line_plane_intersection(s, point, plane_coefficients)
-                uv = interpolate_coordinates(s, point, weight)
-
+                intersect_point = line_plane_intersection(s, point, plane_coefficients)
                 if intersect_point is not None:
                     output_list.append(intersect_point)
-                # print('Weight: ', calculate_weight(s, point, intersect_point))
+
             s = point
             previous_point_location = current_point_location
 
     return output_list
+
+
+def sutherland_hodgman_clip(polygon, clipping_planes):
+    # Initial clipped polygon
+    clipped_polygon = list(polygon)
+
+    for plane in clipping_planes:
+        new_clipped_polygon = []
+        edges = len(clipped_polygon)
+        # Iterate over each edge of the clipped polygon
+        for idx in range(edges):
+            current_point = clipped_polygon[idx]
+            next_point = clipped_polygon[(idx + 1) % edges]
+
+            # Check if the current point is inside the clipping window
+            if is_visible(-plane, current_point):
+                new_clipped_polygon.append(current_point)
+
+            # Check if the edge intersects with the plane
+            intersection_point = line_plane_intersection(current_point, next_point, plane)
+            if intersection_point is not None:
+                new_clipped_polygon.append(intersection_point)
+
+        clipped_polygon = new_clipped_polygon
+
+    return clipped_polygon
+
+
+def clip_polygon_homogeneous(polygon, clipping_planes):
+    """
+    Clip a polygon against a convex clipping window in homogeneous coordinates using Sutherland-Hodgman algorithm.
+
+    Parameters:
+    - polygon: List of vertices of the input polygon in homogeneous coordinates.
+    - clipping_planes: List of clipping planes (normal vectors) in homogeneous coordinates.
+
+    Returns:
+    - List of vertices of the clipped polygon in homogeneous coordinates.
+    """
+    result_polygon = polygon
+
+    for plane in clipping_planes:
+        new_polygon = []
+        shape = len(result_polygon)
+        for i in range(shape):
+            current_vertex = result_polygon[i]
+            next_vertex = result_polygon[(i + 1) % shape]
+
+            current_distance = plane @ current_vertex
+            next_distance = plane @ next_vertex
+
+            if current_distance >= 0:
+                new_polygon.append(current_vertex)
+
+            if current_distance * next_distance < 0:
+                # Crossing the clipping plane
+                intersection_point = (current_vertex * abs(next_distance) + next_vertex * abs(current_distance)) / (abs(current_distance) + abs(next_distance))
+                new_polygon.append(intersection_point)
+
+        result_polygon = new_polygon
+
+    return result_polygon
+
+
+def clipping(polygon, planes):
+    prev_point = polygon[-1]
+    new_polygon = []
+    for current_point in polygon:
+        current_point_visible = classify_point(current_point)
+        if not current_point_visible:
+            new_polygon.append(current_point)
+        for plane in planes:
+            # intersection_point = line_plane_intersection(prev_point, current_point, plane)
+            intersection_point = line_plane_intersection(current_point, prev_point, plane)
+            if intersection_point is not None:
+                new_polygon.append(intersection_point)
+        prev_point = current_point
+    return new_polygon
 
 
 def calculate_weight(vec_a, vec_b, vec_p):

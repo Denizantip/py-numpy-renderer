@@ -68,6 +68,10 @@ def triangulate(poligon):
     for i in range(len(poligon) - 2):
         yield np.array([poligon[0], *poligon[1 + i: 3 + i]], dtype=np.int32)
 
+def triangulate_float(poligon):
+    for i in range(len(poligon) - 2):
+        yield np.array([poligon[0], *poligon[1 + i: 3 + i]])
+
 
 class TextureMaps:
     texture_map = {
@@ -398,19 +402,19 @@ class ProjectionMixin:
     @property
     @cache
     def lookat(self):
-        z_axis = normalize(self.scene.center - self.position).squeeze()
-        # z_axis = normalize(self.position - self.scene.center).squeeze()
-        x_axis = normalize(np.cross(self.up, z_axis)).squeeze()
+        # z_axis = normalize(self.scene.center - self.position).squeeze()
+        z_axis = normalize(self.position - self.scene.center).squeeze()
         # x_axis = normalize(np.cross( z_axis, self.up)).squeeze()
-        y_axis = normalize(np.cross(z_axis, x_axis)).squeeze()
+        x_axis = normalize(np.cross(self.up, z_axis)).squeeze()
         # y_axis = normalize(np.cross(x_axis, z_axis)).squeeze()
+        y_axis = normalize(np.cross(z_axis, x_axis)).squeeze()
 
         rot = np.eye(4)
-        rot[0, :3], rot[1, :3], rot[2, :3] = x_axis, y_axis, z_axis
+        rot[:3, 0], rot[:3, 1], rot[:3, 2] = x_axis, y_axis, z_axis
 
-        rot[:3, 3] = np.array([x_axis, y_axis, z_axis]) @ -self.position
+        rot[3, :3] = np.array([x_axis, y_axis, z_axis]) @ -self.position
 
-        return rot.T
+        return rot
 
     def _lookat(self):
         z_axis = normalize(self.position - self.scene.center).squeeze()
@@ -431,7 +435,7 @@ class ProjectionMixin:
         m = np.array(
             [
                 [width / 2,           0,                          0,  width / 2 - self.x_offset],  # noqa
-                [        0,  height / 2,                          0, height / 2 - self.y_offset],  # noqa
+                [        0,  -height / 2,                          0, height / 2 - self.y_offset],  # noqa
                 [        0,           0,                          depth/2,             depth/2 ],  # noqa
                 # [        0,           0,                          1,                          0],  # noqa
                 [        0,           0,                          0,                          1],  # noqa
@@ -553,7 +557,8 @@ class Scene:
 
         Viewport = self.camera.viewport
 
-        MVP = self.camera._lookat() @ Projection
+        MVP = Projection @ ModelView
+        # MVP = ModelView @ Projection
 
         if self.light.show_cube:
             cube = Model.load_model('obj_loader_test/cube.obj', shadowing=False)
@@ -572,26 +577,8 @@ class Scene:
 
         for model in self.models:
             total_faces = model._faces.shape[0]
-
-            view_vertices = model.vertices @ ModelView
-            model.view_tri = view_vertices
-            ndc_vertices = view_vertices @ Projection
-            model.vertices = view_vertices @ Projection
-
-            for face in model.faces:
-                verts = list(face.vertices[:, :3])
-                sutherland_hodgman_3d(verts, extract_frustum_planes(MVP))
-
-            depth = 1
-            if self.camera.projection_type == PROJECTION.OPEN_GL_PERSPECTIVE:
-                # save for perspective correct interpolation (with zero division eps)
-                depth = 1 / ndc_vertices[W]
-                ndc_vertices *= depth[add_dim]  # perspective division
-
-            # NDC space
-
-            model.vertices = ndc_vertices @ Viewport
-            model.vertices[W] = depth
+            model.view_tri = model.vertices @ ModelView
+            model.vertices = model.view_tri @ Projection
 
             # Clip space
             if model.normals is not None:
@@ -602,9 +589,32 @@ class Scene:
 
             rendered_faces = 0
             errors = [0, 0, 0, 0]
-            for face in model.faces:
 
-                # face.vertices[Z] = self.camera.LinearizeDepth(face.vertices[Z])
+            make_first = False
+            for face in model.faces:
+                # clipping
+
+                new_polygon = clipping(face.vertices, extract_frustum_planes(MVP))
+                for point in new_polygon:
+                    # if make_first:
+                    #     break
+                    point = ((point / point[3]) @ Viewport).astype(int)
+                    for i in range(9):
+                        for j in range(9):
+                            frame[min(point[0] + i, 1499), min(point[1] + j, 1499)] = [255, 255, 255]
+                            z_buffer[min(point[0] + i, 1499), min(point[1] + j, 1499)] = float('inf')
+                    make_first = True
+                print("Verts", face.vertices)
+                print("1->", np.array(new_polygon))
+
+                depth = 1
+                if self.camera.projection_type == PROJECTION.OPEN_GL_PERSPECTIVE:
+                    # save for perspective correct interpolation (with zero division eps)
+                    depth = 1 / face.vertices[W]
+                    face.vertices *= depth[add_dim]  # perspective division
+
+                face.vertices = face.vertices @ Viewport
+                face.vertices[W] = depth
 
                 code = rasterize(face, frame, z_buffer, shadow_z_buffer,
                                  self.light, self.camera)

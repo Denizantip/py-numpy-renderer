@@ -166,7 +166,7 @@ def shadow_texture(face, shadow_z_buffer, light):
     shadow_z_buffer[x, y] = z
 
 
-backface_culling = True
+backface_culling = False
 
 
 def rasterize(face, frame, z_buffer, shadow_z_buffer, light, camera):
@@ -204,6 +204,7 @@ def rasterize(face, frame, z_buffer, shadow_z_buffer, light, camera):
         return Errors.EMPTY_B
 
     Bi = (bar_screen >= 0).all(axis=1)
+
     bar_screen = bar_screen[Bi]
     if not bar_screen.size:
         return Errors.EMPTY_B
@@ -215,13 +216,7 @@ def rasterize(face, frame, z_buffer, shadow_z_buffer, light, camera):
 
     z = bar_screen @ face.vertices[Z]
 
-    # clipping
-    w = 1 / face.vertices[W]
-    ndc = (face.vertices / w[add_dim]) @ np.linalg.inv(camera.viewport)
-    ndc[W] = w
-    ndc = bar_screen @ ndc
-
-    Zi = (z_buffer[x, y] < z) #& (ndc[Z] >= -1) & (ndc[Z] <= 1)
+    Zi = z_buffer[x, y] < z
 
     if not Zi.size:
         return Errors.EMPTY_Z
@@ -274,10 +269,10 @@ def general_shading(face, bar, light, camera, frame, x, y, Zi, shadow_z_buffer):
     fragment_position = bar @ face.view_vertices[XYZ]
 
     if face.normals is None:
-        light_dir = -normalize(light.position).squeeze()
+        light_dir = normalize(light.position).squeeze()
     else:
         light_dir = normalize(light.position - fragment_position)
-        # light_dir = -normalize(fragment_position - light.position)
+        # light_dir = normalize(fragment_position - light.position)
 
     view_dir = normalize(camera.position - fragment_position)
 

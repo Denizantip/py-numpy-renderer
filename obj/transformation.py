@@ -43,13 +43,13 @@ def barycentric(a, b, c, p):
     v0 = b - a
     v1 = c - a
     v2 = p - a
-    d00 = v0 @ v0
-    d01 = v0 @ v1
-    d11 = v1 @ v1
+    d00 = np.float32(v0 @ v0)
+    d01 = np.float32(v0 @ v1)
+    d11 = np.float32(v1 @ v1)
     d20 = v2 @ v0
     d21 = v2 @ v1
 
-    denom = (d00 * d11 - d01 * d01)
+    denom = d00 * d11 - d01 * d01
     if denom == 0:
         return
     invDenom = 1.0 / denom
@@ -129,7 +129,7 @@ def gl_perspective(top, bottom, right, left, near, far):
 
 def generate_perspective_projection_matrix_left_handed(fov_degrees, aspect_ratio, near, far):
     # Convert fov degrees to radians
-    # https: // perry.cz / articles / ProjectionMatrix.xhtml
+    # https://perry.cz/articles/ProjectionMatrix.xhtml
     fov_rad = np.radians(fov_degrees)
 
     # Calculate scale based on the field of view and aspect ratio
@@ -139,17 +139,17 @@ def generate_perspective_projection_matrix_left_handed(fov_degrees, aspect_ratio
     projection_matrix = np.zeros((4, 4))
     projection_matrix[0, 0] = aspect_ratio * scale  # X scaling
     projection_matrix[1, 1] = scale  # Y scaling
-    projection_matrix[2, 2] = -far / (far - near)  # Z scaling
-    projection_matrix[3, 2] = -1.0  # Perspective projection
-    projection_matrix[2, 3] = -near * far / (far - near)  # Translation
+    projection_matrix[2, 2] = far / (far - near)  # Z scaling
+    projection_matrix[2, 3] = -1.0  # Perspective projection
+    projection_matrix[3, 2] = far * near / (far - near)  # Translation
 
-    return projection_matrix.T
+    return projection_matrix
 
 
 def gl_symmetric_perspective(top, right, near, far):
     M = np.array(
         [
-            [ -near / right, 0          , 0                           , 0                             ],  # noqa
+            [ near / right, 0          , 0                           , 0                             ],  # noqa
             [ 0           , near / top , 0                           , 0                             ],  # noqa
             [ 0           , 0          , -(far + near) / (far - near), -2 * far * near / (far - near)],  # noqa
             [ 0           , 0          , -1                          , 0                             ],  # noqa

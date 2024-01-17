@@ -40,8 +40,8 @@ if __name__ == "__main__":
     height = 1500
 
     # floor.vertices = floor.vertices @ scale(2)
-    light = Light((5, 2, 4), color=(1, 1, 1),
-                  show_cube=True,
+    light = Light((0, 1, 1), color=(1, 1, 1),
+                  show_cube=False,
                   # constant=1,
                   # linear=0.2,
                   # quadratic=0.2,
@@ -53,20 +53,20 @@ if __name__ == "__main__":
     # minicooper = minicooper @ rotate((0, -90, 0))
     # cube.normals *= -1
 
-    camera = Camera((10, 5, 5), up=np.array((0, 1, 0)),
+    camera = Camera((0.5, 1, 3), up=np.array((0, 1, 0)),
                     projection_type=PROJECTION.OPEN_GL_PERSPECTIVE,
                     # projection_type=PROJECTION.OPEN_GL_ORTHOGRAPHIC,
-                    fovy=90,
-                    near=2,
-                    far=10,
+                    fovy=60,
+                    near=0.0001,
+                    far=100,
                     resolution=(height, width),
                     y_offset=0
                     )
     scene = Scene(camera, light, center=(0, 0, 0))
-    # scene.add_model(floor)
+    scene.add_model(floor)
     # scene.add_model(diablo)
     # scene.add_model(minicooper)
-    scene.add_model(katana)
+    # scene.add_model(katana)
     # scene.add_model(sword)
     # scene.add_model(deer)
     # scene.add_model(cube)
@@ -80,10 +80,7 @@ if __name__ == "__main__":
 
     start = time.time()
     picture = scene.render()
-    # buffer = ((buffer - buffer.min()) / (buffer.max() - buffer.min())) * 255
-    # tmp = np.zeros((*buffer.shape, 3), dtype=np.uint8)
-    # tmp[..., 0] = tmp[..., 1] = tmp[..., 2] = buffer
-    # picture = np.concatenate((picture, tmp), axis=1)
+
     print(f"render took {time.time() - start}")
     img = ImageTk.PhotoImage(image=Image.fromarray(picture))
     image_container = canvas.create_image(0, 0, anchor=NW, image=img)
