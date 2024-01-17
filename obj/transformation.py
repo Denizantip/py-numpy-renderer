@@ -139,9 +139,9 @@ def generate_perspective_projection_matrix_left_handed(fov_degrees, aspect_ratio
     projection_matrix = np.zeros((4, 4))
     projection_matrix[0, 0] = aspect_ratio * scale  # X scaling
     projection_matrix[1, 1] = scale  # Y scaling
-    projection_matrix[2, 2] = far / (far - near)  # Z scaling
+    projection_matrix[2, 2] = - (far + near) / (far - near)  # Z scaling
     projection_matrix[2, 3] = -1.0  # Perspective projection
-    projection_matrix[3, 2] = far * near / (far - near)  # Translation
+    projection_matrix[3, 2] = -2 * far * near / (far - near)  # Translation
 
     return projection_matrix
 

@@ -557,8 +557,9 @@ class Scene:
 
         Viewport = self.camera.viewport
 
-        MVP = Projection @ ModelView
-        # MVP = ModelView @ Projection
+        # MVP = Projection @ ModelView
+        MVP = ModelView @ Projection
+        print(get_parametrized(MVP))
 
         if self.light.show_cube:
             cube = Model.load_model('obj_loader_test/cube.obj', shadowing=False)
@@ -580,6 +581,7 @@ class Scene:
             model.view_tri = model.vertices @ ModelView
             model.vertices = model.view_tri @ Projection
 
+            # model.vertices[Z] = -2.0 * np.log(model.vertices[Z] + 1.0) / np.log(self.camera.far + 1.0) - 1.0
             # Clip space
             if model.normals is not None:
                 normals = model.normals @ ModelView[mat3x3]
@@ -590,22 +592,22 @@ class Scene:
             rendered_faces = 0
             errors = [0, 0, 0, 0]
 
-            make_first = False
             for face in model.faces:
                 # clipping
 
-                new_polygon = clipping(face.vertices, extract_frustum_planes(MVP))
+                new_polygon = sutherland_hodgman_clip(face.vertices, extract_frustum_planes(MVP))
                 for point in new_polygon:
                     # if make_first:
                     #     break
                     point = ((point / point[3]) @ Viewport).astype(int)
-                    for i in range(9):
-                        for j in range(9):
-                            frame[min(point[0] + i, 1499), min(point[1] + j, 1499)] = [255, 255, 255]
-                            z_buffer[min(point[0] + i, 1499), min(point[1] + j, 1499)] = float('inf')
-                    make_first = True
+                    print(point)
+                    for i in range(-3, 3):
+                        for j in range(-3, 3):
+                            frame[min(point[0] + i, 1490), min(point[1] + j, 1490)] = [255, 255, 255]
+                            z_buffer[min(point[0] + i, 1490), min(point[1] + j, 1490)] = float('inf')
+
                 print("Verts", face.vertices)
-                print("1->", np.array(new_polygon))
+                # print("1->", np.array(new_polygon))
 
                 depth = 1
                 if self.camera.projection_type == PROJECTION.OPEN_GL_PERSPECTIVE:

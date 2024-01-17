@@ -113,7 +113,7 @@ def sutherland_hodgman_clip(polygon, clipping_planes):
             next_point = clipped_polygon[(idx + 1) % edges]
 
             # Check if the current point is inside the clipping window
-            if is_visible(-plane, current_point):
+            if is_visible(plane, current_point):
                 new_clipped_polygon.append(current_point)
 
             # Check if the edge intersects with the plane
@@ -127,24 +127,14 @@ def sutherland_hodgman_clip(polygon, clipping_planes):
 
 
 def clip_polygon_homogeneous(polygon, clipping_planes):
-    """
-    Clip a polygon against a convex clipping window in homogeneous coordinates using Sutherland-Hodgman algorithm.
-
-    Parameters:
-    - polygon: List of vertices of the input polygon in homogeneous coordinates.
-    - clipping_planes: List of clipping planes (normal vectors) in homogeneous coordinates.
-
-    Returns:
-    - List of vertices of the clipped polygon in homogeneous coordinates.
-    """
     result_polygon = polygon
 
     for plane in clipping_planes:
         new_polygon = []
-        shape = len(result_polygon)
-        for i in range(shape):
+        edges = len(result_polygon)
+        for i in range(edges):
             current_vertex = result_polygon[i]
-            next_vertex = result_polygon[(i + 1) % shape]
+            next_vertex = result_polygon[(i + 1) % edges]
 
             current_distance = plane @ current_vertex
             next_distance = plane @ next_vertex
@@ -163,6 +153,7 @@ def clip_polygon_homogeneous(polygon, clipping_planes):
 
 
 def clipping(polygon, planes):
+    """Nope"""
     prev_point = polygon[-1]
     new_polygon = []
     for current_point in polygon:
@@ -205,3 +196,13 @@ def classify_point_on_planes(points, matrix):
             flags |= flag if classify_point(plane, point) else Intersect(0)
         print(flags)
 
+A = np.array([-7, 1, 3, 1])
+B = np.array([1, -1, -1, 1])
+C = np.array([7, -1, 5, 1])
+
+intersection_points = np.array([
+    [1, -1, -1],
+    [1.92424, -1, -0.07576],
+    [-1.81356, -0.29661, 0.40678],
+    [-0.52294, -0.23853, 2.04587],
+    [1.36767, -0.666, 1.37133]])

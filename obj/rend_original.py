@@ -53,12 +53,12 @@ if __name__ == "__main__":
     # minicooper = minicooper @ rotate((0, -90, 0))
     # cube.normals *= -1
 
-    camera = Camera((0.5, 1, 3), up=np.array((0, 1, 0)),
+    camera = Camera((0, 1, 2), up=np.array((0, 1, 0)),
                     projection_type=PROJECTION.OPEN_GL_PERSPECTIVE,
                     # projection_type=PROJECTION.OPEN_GL_ORTHOGRAPHIC,
-                    fovy=60,
-                    near=0.0001,
-                    far=100,
+                    fovy=90,
+                    near=2,
+                    far=4,
                     resolution=(height, width),
                     y_offset=0
                     )
