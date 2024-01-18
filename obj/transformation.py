@@ -9,6 +9,7 @@ V = Y = (..., 1)  # pts[:, 1]
 Z = (..., 2)  # pts[:, 2]
 # W = (..., slice(3, 4))  # pts[:, 3]
 W = (..., 3)  # pts[:, 3]
+W_COL = (..., [3])
 XY = (..., (0, 1))  # pts[:, :2]
 XZ = (..., (0, 2))
 YZ = (..., (1, 2))
@@ -140,8 +141,10 @@ def generate_perspective_projection_matrix_left_handed(fov_degrees, aspect_ratio
     projection_matrix[0, 0] = aspect_ratio * scale  # X scaling
     projection_matrix[1, 1] = scale  # Y scaling
     projection_matrix[2, 2] = (far + near) / (far - near)  # Z scaling
+    # projection_matrix[2, 2] = -far / (far - near)  # Z scaling
     projection_matrix[2, 3] = -1.0  # Perspective projection
     projection_matrix[3, 2] = 2 * far * near / (far - near)  # Translation
+    # projection_matrix[3, 2] = -far * near / (far - near)  # Translation
 
     return projection_matrix
 

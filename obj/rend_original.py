@@ -40,7 +40,7 @@ if __name__ == "__main__":
     height = 1500
 
     # floor.vertices = floor.vertices @ scale(2)
-    light = Light((0, 1, 1), color=(1, 1, 1),
+    light = Light((0, 0.9, 1.9), color=(1, 1, 1),
                   show_cube=False,
                   # constant=1,
                   # linear=0.2,
@@ -57,14 +57,14 @@ if __name__ == "__main__":
                     projection_type=PROJECTION.OPEN_GL_PERSPECTIVE,
                     # projection_type=PROJECTION.OPEN_GL_ORTHOGRAPHIC,
                     fovy=90,
-                    near=1.5,
-                    far=4,
+                    near=2.5,
+                    far=3.2,
                     resolution=(height, width),
                     y_offset=0
                     )
     scene = Scene(camera, light, center=(0, 0, 0))
     scene.add_model(floor)
-    scene.add_model(diablo)
+    # scene.add_model(diablo)
     # scene.add_model(minicooper)
     # scene.add_model(katana)
     # scene.add_model(sword)

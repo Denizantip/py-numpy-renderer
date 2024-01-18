@@ -34,6 +34,97 @@ def line(x0, y0, x1, y1):
             D -= 2 * dx
         D += 2 * dy
 
+def line3d(x0, y0, z0, x1, y1, z1):
+    dx = x1 - x0
+    dy = y1 - y0
+    dz = z1 - z0
+
+    xsign = 1 if dx > 0 else -1
+    ysign = 1 if dy > 0 else -1
+    zsign = 1 if dz > 0 else -1
+
+    dx = abs(dx)
+    dy = abs(dy)
+    dz = abs(dz)
+
+    if dx > dy:
+        xx, xy, yx, yy, zx, zy = xsign, 0, 0, ysign, 0, 0
+    else:
+        dx, dy, dz = dy, dx, dz
+        xx, xy, yx, yy, zx, zy = 0, ysign, xsign, 0, 0, zsign
+
+    xy2 = 2 * dy
+    xz2 = 2 * dz
+    yz2 = 2 * dz
+
+    D = xy2 - dx
+    E = xz2 - dx
+    y = z = 0
+
+    for x in range(dx + 1):
+        yield x0 + x * xx + y * yx + z * zx, y0 + x * xy + y * yy + z * zy, z0 + x * xz2 + y * yz2
+        if D >= 0:
+            y += 1
+            D -= 2 * dx
+        if E >= 0:
+            z += 1
+            E -= 2 * dx
+        D += xy2
+        E += xz2
+
+def line_3d_generator(x0, y0, z0, x1, y1, z1):
+    dx = abs(x1 - x0)
+    dy = abs(y1 - y0)
+    dz = abs(z1 - z0)
+
+    xsign = 1 if x1 > x0 else -1
+    ysign = 1 if y1 > y0 else -1
+    zsign = 1 if z1 > z0 else -1
+
+    if dy > dx:
+        dx, dy = dy, dx
+        xsign, ysign = ysign, xsign
+
+    if dz > dx:
+        dx, dz = dz, dx
+        xsign, zsign = zsign, xsign
+
+    if dz > dy:
+        dy, dz = dz, dy
+        ysign, zsign = zsign, ysign
+
+    xx, xy, yx, yy, zx, zy = xsign, 0, 0, ysign, 0, 0
+
+    xy2 = 2 * dy
+    xz2 = 2 * dz
+    yz2 = 2 * dz
+
+    D = xy2 - dx
+    E = xz2 - dx
+    F = yz2 - dy
+
+    x, y, z = x0, y0, z0
+
+    for _ in range(max(dx, dy, dz) + 1):
+        yield x, y, z
+
+        if D >= 0:
+            y += ysign
+            D -= 2 * dx
+
+        if E >= 0:
+            z += zsign
+            E -= 2 * dx
+
+        if F >= 0:
+            z += zsign
+            F -= 2 * dy
+
+        D += xy2
+        E += xz2
+        F += yz2
+
+        x += xx
 
 def bresenham(x1, y1, x2, y2):
     m_new = 2 * (y2 - y1)
@@ -166,7 +257,7 @@ def shadow_texture(face, shadow_z_buffer, light):
     shadow_z_buffer[x, y] = z
 
 
-backface_culling = False
+backface_culling = True
 
 
 def rasterize(face, frame, z_buffer, shadow_z_buffer, light, camera):
@@ -216,7 +307,15 @@ def rasterize(face, frame, z_buffer, shadow_z_buffer, light, camera):
 
     z = bar_screen @ face.vertices[Z]
 
-    Zi = z_buffer[x, y] < z
+    # clipping
+    w = 1/face.vertices[W]
+    ndc = (face.vertices @ np.linalg.inv(camera.viewport)) / w[add_dim]
+    ndc[W] = w
+    ndc = bar_screen @ ndc
+
+    Zi = (z_buffer[x, y] < z) & (-ndc[:, [3]] <= ndc[XYZ]).all(axis=1) & (ndc[:, [3]] >= ndc[XYZ]).all(axis=1)
+
+    # Zi = z_buffer[x, y] < z
 
     if not Zi.size:
         return Errors.EMPTY_Z

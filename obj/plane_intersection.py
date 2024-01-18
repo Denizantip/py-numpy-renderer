@@ -2,6 +2,9 @@ from enum import IntFlag, auto
 
 import numpy as np
 
+from obj.transformation import W_COL
+
+
 # from core import Face
 
 
@@ -21,6 +24,12 @@ def normalize_plane(plane):
     return plane / np.linalg.norm(plane)
 
 
+def homogeneous_intersect(v1, v2, plane):
+    t = np.dot(plane, v1) / (np.dot(plane, v1) - np.dot(plane, v2))
+    intersection_point = (1 - t) * v1 + t * v2
+    return intersection_point
+
+
 def line_plane_intersection(line_point1, line_point2, plane_coefficients):
     line_direction = line_point2 - line_point1
 
@@ -35,17 +44,14 @@ def line_plane_intersection(line_point1, line_point2, plane_coefficients):
 
         return intersection_point
 
-    return None  # No intersection between segment points
-
 
 def classify_point(point):
     # return (point[3] > point[:3]).all() and (-point[3] > point[:3]).all()
-    return ((point[3] > point[:3]) & (-point[3] < point[:3])).all()
+    return ((point[3] < point[:3]) & (-point[3] < point[:3])).all()
 
 
 def is_visible(point, plane):
-    distance = plane @ point
-    return distance >= 0
+    return plane @ point >= 0
 
 
 def extract_frustum_planes(matrix):
@@ -64,109 +70,30 @@ def extract_frustum_planes(matrix):
     return planes
 
 
-def sutherland_hodgman_3d(face, frustum_planes):
-    output_list = list(face)
-
-    # Iterate over all planes
-    for plane_coefficients in frustum_planes:
-        input_list = output_list
-        output_list = []
-
-        if not input_list:
-            break
-
-        s = input_list[-1]
-        previous_point_location = is_visible(s, plane_coefficients)
-
-        for point in input_list:
-            current_point_location = is_visible(point, plane_coefficients)
-
-            if current_point_location:
-                if not previous_point_location:
-                    intersect_point = line_plane_intersection(s, point, plane_coefficients)
-                    # intersection point to vertex buffer
-                    if intersect_point is not None:
-                        output_list.append(intersect_point)
-                    # print('Weight: ', calculate_weight(s, point, intersect_point))
-                output_list.append(point)
-            elif previous_point_location:
-                intersect_point = line_plane_intersection(s, point, plane_coefficients)
-                if intersect_point is not None:
-                    output_list.append(intersect_point)
-
-            s = point
-            previous_point_location = current_point_location
-
-    return output_list
-
-
-def sutherland_hodgman_clip(polygon, clipping_planes):
-    # Initial clipped polygon
-    clipped_polygon = list(polygon)
-
-    for plane in clipping_planes:
-        new_clipped_polygon = []
-        edges = len(clipped_polygon)
-        # Iterate over each edge of the clipped polygon
-        for idx in range(edges):
-            current_point = clipped_polygon[idx]
-            next_point = clipped_polygon[(idx + 1) % edges]
-
-            # Check if the current point is inside the clipping window
-            if is_visible(plane, current_point):
-                new_clipped_polygon.append(current_point)
-
-            # Check if the edge intersects with the plane
-            intersection_point = line_plane_intersection(current_point, next_point, plane)
-            if intersection_point is not None:
-                new_clipped_polygon.append(intersection_point)
-
-        clipped_polygon = new_clipped_polygon
-
-    return clipped_polygon
-
-
-def clip_polygon_homogeneous(polygon, clipping_planes):
+def clipping(polygon, planes):
+    """        w_coord = bar_screen @ self.vertices[W]
+        perspective = bar_screen * self.vertices[W] / w_coord[add_dim]
+        """
     result_polygon = polygon
-
-    for plane in clipping_planes:
+    for plane in planes:
         new_polygon = []
+
         edges = len(result_polygon)
         for i in range(edges):
-            current_vertex = result_polygon[i]
-            next_vertex = result_polygon[(i + 1) % edges]
+            current_point = result_polygon[i]
+            next_point = result_polygon[(i + 1) % edges]
 
-            current_distance = plane @ current_vertex
-            next_distance = plane @ next_vertex
+            current_point_visible = is_visible(current_point, plane)
+            next_point_visible = is_visible(next_point, plane)
+            if current_point_visible:
+                new_polygon.append(current_point)
 
-            if current_distance >= 0:
-                new_polygon.append(current_vertex)
-
-            if current_distance * next_distance < 0:
-                # Crossing the clipping plane
-                intersection_point = (current_vertex * abs(next_distance) + next_vertex * abs(current_distance)) / (abs(current_distance) + abs(next_distance))
-                new_polygon.append(intersection_point)
+            #  income or outcome
+            if current_point_visible ^ next_point_visible:
+                new_polygon.append(line_plane_intersection(next_point, current_point, plane))
 
         result_polygon = new_polygon
-
     return result_polygon
-
-
-def clipping(polygon, planes):
-    """Nope"""
-    prev_point = polygon[-1]
-    new_polygon = []
-    for current_point in polygon:
-        current_point_visible = classify_point(current_point)
-        if not current_point_visible:
-            new_polygon.append(current_point)
-        for plane in planes:
-            # intersection_point = line_plane_intersection(prev_point, current_point, plane)
-            intersection_point = line_plane_intersection(current_point, prev_point, plane)
-            if intersection_point is not None:
-                new_polygon.append(intersection_point)
-        prev_point = current_point
-    return new_polygon
 
 
 def calculate_weight(vec_a, vec_b, vec_p):
@@ -195,6 +122,7 @@ def classify_point_on_planes(points, matrix):
         for plane, flag in zip(extract_frustum_planes(matrix), Intersect):
             flags |= flag if classify_point(plane, point) else Intersect(0)
         print(flags)
+
 
 A = np.array([-7, 1, 3, 1])
 B = np.array([1, -1, -1, 1])

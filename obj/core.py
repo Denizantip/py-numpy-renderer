@@ -1,9 +1,9 @@
 import os.path
+import random
 from functools import cache
 from typing import Iterator, Optional, List
 from os import PathLike
 
-import numpy as np
 from PIL import Image
 
 from obj.materials import Material
@@ -67,6 +67,7 @@ from numpy.typing import NDArray
 def triangulate(poligon):
     for i in range(len(poligon) - 2):
         yield np.array([poligon[0], *poligon[1 + i: 3 + i]], dtype=np.int32)
+
 
 def triangulate_float(poligon):
     for i in range(len(poligon) - 2):
@@ -158,9 +159,8 @@ class Face:
         perspective = bar_screen * self.vertices[W] / w_coord[add_dim]
         perspective = perspective[(perspective >= 0).all(axis=1)]
 
-        if not perspective.size:
-            return
-        return perspective
+        if perspective.size:
+            return perspective
 
     def get_object_color(self, bar):
         if hasattr(self.material, 'map_Kd'):
@@ -416,17 +416,6 @@ class ProjectionMixin:
 
         return rot
 
-    def _lookat(self):
-        z_axis = normalize(self.position - self.scene.center).squeeze()
-        x_axis = normalize(np.cross(self.up, z_axis)).squeeze()
-        y_axis = normalize(np.cross(z_axis, x_axis)).squeeze()
-
-        rot = np.eye(4)
-        rot[0, :3], rot[1, :3], rot[2, :3] = x_axis, y_axis, z_axis
-
-        rot[:3, 3] = np.array([x_axis, y_axis, z_axis]) @ -self.position
-
-        return rot.T
 
     @property
     def viewport(self):
@@ -563,8 +552,9 @@ class Scene:
 
         if self.light.show_cube:
             cube = Model.load_model('obj_loader_test/cube.obj', shadowing=False)
-            cube = cube @ scale(0.05)
+            cube = cube @ scale(10)
             cube = cube @ translation(self.light.position)
+            cube.normals *= -1
             self.add_model(cube)
 
 
@@ -580,9 +570,9 @@ class Scene:
             total_faces = model._faces.shape[0]
             model.view_tri = model.vertices @ ModelView
             model.vertices = model.view_tri @ Projection
+            # model.vertices[Z] = 2.0 * np.log(model.vertices[Z] + 1.0) / np.log(self.camera.far + 1.0) - 1.0
+            # model.vertices[Z] = self.camera.LinearizeDepth(model.vertices[Z])
 
-            # model.vertices[Z] = -2.0 * np.log(model.vertices[Z] + 1.0) / np.log(self.camera.far + 1.0) - 1.0
-            # Clip space
             if model.normals is not None:
                 normals = model.normals @ ModelView[mat3x3]
                 model.normals = normalize(normals)
@@ -594,29 +584,46 @@ class Scene:
 
             for face in model.faces:
                 # clipping
+                new_polygon = clipping(face.vertices, extract_frustum_planes(MVP))
+                # print(new_polygon)
+                if new_polygon:
 
-                new_polygon = sutherland_hodgman_clip(face.vertices, extract_frustum_planes(MVP))
-                for point in new_polygon:
-                    # if make_first:
-                    #     break
-                    point = ((point / point[3]) @ Viewport).astype(int)
-                    print(point)
-                    for i in range(-3, 3):
-                        for j in range(-3, 3):
-                            frame[min(point[0] + i, 1490), min(point[1] + j, 1490)] = [255, 255, 255]
-                            z_buffer[min(point[0] + i, 1490), min(point[1] + j, 1490)] = float('inf')
+                # for idx in range(len(new_polygon)):
+                #     point = new_polygon[idx]
+                #     new_polygon[idx] = ((point / point[3]) @ Viewport).astype(int)
 
-                print("Verts", face.vertices)
+                    edges = len(new_polygon)
+                    color = [random.randint(0, 255) for _ in range(3)]
+                    for idx in range(edges):
+                        current = new_polygon[idx]
+                        prev = new_polygon[(idx+1) % edges]
+                        cur_z = current[2]
+                        prev_z = prev[2]
+                        current = ((current / current[3]) @ Viewport).astype(int)
+                        # current = ((current) @ Viewport).astype(int)
+                        prev = ((prev / prev[3]) @ Viewport).astype(int)
+                        # prev = ((prev) @ Viewport).astype(int)
+
+                        for xx, yy in line(prev[0], prev[1], current[0], current[1]):
+
+                            for i in range(3):
+                                xx = max(0, min(frame.shape[0] - 3, xx))
+                                yy = max(0, min(frame.shape[1] - 3, yy))
+                                frame[xx + i, yy + i] = color
+
+                                z_buffer[xx + i, yy + i] = float('inf')
+
+                # print("Verts", face.vertices)
                 # print("1->", np.array(new_polygon))
 
                 depth = 1
                 if self.camera.projection_type == PROJECTION.OPEN_GL_PERSPECTIVE:
                     # save for perspective correct interpolation (with zero division eps)
-                    depth = 1 / face.vertices[W]
-                    face.vertices *= depth[add_dim]  # perspective division
+                    depth = 1 / face.vertices[W_COL]
+                    face.vertices *= depth  # perspective division
 
                 face.vertices = face.vertices @ Viewport
-                face.vertices[W] = depth
+                face.vertices[W_COL] = depth
 
                 code = rasterize(face, frame, z_buffer, shadow_z_buffer,
                                  self.light, self.camera)
