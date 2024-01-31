@@ -1,6 +1,6 @@
 import numpy as np
 from numpy.typing import NDArray
-from typing import Annotated, Literal
+from typing import Annotated
 
 U = X = (..., 0)  # pts[:, 0]
 V = Y = (..., 1)  # pts[:, 1]

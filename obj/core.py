@@ -556,7 +556,7 @@ class Scene:
             # model.view_tri = model.vertices @ ModelView
             # model.vertices = model.view_tri @ Projection
 
-            depth = 1
+            # depth = 1
             # if camera1.projection_type == PROJECTION_TYPE.PERSPECTIVE:
                 # save for perspective correct interpolation (with zero division eps)
                 # depth = 1 / model.vertices[W_COL]
@@ -608,6 +608,8 @@ class Scene:
                 face.vertices *= depth  # perspective division
                 face.vertices = face.vertices @ Viewport
                 face.vertices[W_COL] = depth
+
+
 
                 code = rasterize(face, frame, z_buffer, self.light[0], camera1)
                 if code:

@@ -55,7 +55,7 @@ if __name__ == "__main__":
                      center=(0, 0, 0)
                      )
     camera2 = Camera((0, 1, 0.00001), up=np.array((0, 1, 0)),
-                     show=False,
+                     show=True,
                      fovy=60,
                      near=0.0001,
                      far=2.1,
