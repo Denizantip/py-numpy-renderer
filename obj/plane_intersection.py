@@ -1,15 +1,4 @@
-from enum import IntFlag, auto
-
 import numpy as np
-
-
-class Intersect(IntFlag):
-    left = auto()
-    right = auto()
-    bottom = auto()
-    top = auto()
-    near = auto()
-    far = auto()
 
 
 def normalize_plane(plane):
@@ -19,25 +8,19 @@ def normalize_plane(plane):
     return plane / np.linalg.norm(plane)
 
 
-def homogeneous_intersect(v1, v2, plane):
-    t = np.dot(plane, v1) / (np.dot(plane, v1) - np.dot(plane, v2))
-    intersection_point = (1 - t) * v1 + t * v2
-    return intersection_point
-
-
 def line_plane_intersection(line_point1, line_point2, plane_coefficients):
     line_direction = line_point2 - line_point1
 
     denominator = plane_coefficients @ line_direction
     if abs(denominator) < 1e-10:
-        return None, None  # No intersection (parallel)
+        return None  # No intersection (parallel)
     # weight needed for texture/normals interpolation
     weight = -(plane_coefficients @ line_point1) / denominator
 
     if 0 <= weight <= 1:
         intersection_point = line_point1 + weight * line_direction
 
-        return intersection_point, weight
+        return intersection_point
 
 def is_visible(point, plane):
     return plane @ point >= 0
@@ -81,19 +64,16 @@ def clipping(polygon, planes):
 
             #  income or outcome
             if current_point_visible ^ next_point_visible:
-                intersection_point, weight = line_plane_intersection(next_point, current_point, plane)
-                new_polygon.append(intersection_point)
+                intersection_point = line_plane_intersection(next_point, current_point, plane)
+                if intersection_point is not None:
+                    new_polygon.append(intersection_point)
 
         result_polygon = new_polygon
     return result_polygon
 
 
-def calculate_weight(vec_a, vec_b, vec_p):
-    return np.linalg.norm(vec_p - vec_a) / np.linalg.norm(vec_b - vec_a)
-
-
-def interpolate_coordinates(coord_a, coord_b, weight):
-    return coord_a * (1 - weight) + coord_b * weight
+def interpolate_attr(attr1, attr2, alpha):
+    return attr1 + alpha * (attr2 - attr1)
 
 
 def get_parameterized(matrix):

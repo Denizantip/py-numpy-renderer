@@ -17,6 +17,9 @@ if __name__ == "__main__":
     katana = katana @ scale(0.1)
     # minicooper = Model.load_model('minicooper.obj')
     cube = Model.load_model('obj_loader_test/cube.obj', shadowing=False)
+    cube_map = Model.load_model('obj_loader_test/cube.obj', shadowing=False)
+    cube_map = cube_map @ scale(10)
+    # cube_map.normals *= -1
     diablo = Model.load_model("diablo3_pose/diablo3_pose.obj")
     # deer = Model.load_model("deer.obj")
     floor = Model.load_model("floor.obj")
@@ -38,7 +41,7 @@ if __name__ == "__main__":
     # diablo.textures.register("glow", 'diablo3_pose/diablo3_pose_glow.tga', normalize=False)
 
     # floor.vertices = floor.vertices @ scale(2)
-    light = Light((0.5, 2, 1), color=(1, 1, 1),
+    light = Light((0.5, 0.5, 1), color=(1, 1, 1),
                   show=False
                   )
     # cube = cube @ translation((-0.5, 1, 2.5))
@@ -46,31 +49,34 @@ if __name__ == "__main__":
     # minicooper = minicooper @ rotate((0, -90, 0))
     # cube.normals *= -1
 
-    camera1 = Camera((0, 2, 0.00001), up=np.array((0, 1, 0)),
+    camera = Camera((1, 1, 2),
+                    up=np.array((0, 1, 0)),
+                    show=False,
+                    fovy=60,
+                    near=0.0001,
+                    far=20,
+                    projection_type=PROJECTION_TYPE.PERSPECTIVE,
+                    center=(0, 0, 0)
+                    )
+    camera2 = Camera((0, 1, 3), up=np.array((0, 1, 0)),
                      show=False,
-                     fovy=60,
-                     near=0.0001,
-                     far=2.1,
-                     projection_type=PROJECTION_TYPE.PERSPECTIVE,
-                     center=(0, 0, 0)
-                     )
-    camera2 = Camera((0, 1, 0.00001), up=np.array((0, 1, 0)),
-                     show=True,
-                     fovy=60,
-                     near=0.0001,
-                     far=2.1,
+                     fovy=20,
+                     near=2.3,
+                     far=3.2,
                      # center=(0, 3, 0.01),
                      center=(0, 0, 0),
                      projection_type=PROJECTION_TYPE.PERSPECTIVE,
                      )
     height, width = (1500, 1500)
-    scene = Scene([camera1, camera2],
-                  [light],
+    scene = Scene(camera,
+                  light,
+                  debug_camera=camera2,
                   resolution=(height, width),
                   system=SYSTEM.LH,
                   subsystem=SUBSYSTEM.OPENGL)
     scene.add_model(floor)
     scene.add_model(diablo)
+    scene.add_model(cube_map)
     # scene.add_model(minicooper)
     # scene.add_model(katana)
     # scene.add_model(sword)

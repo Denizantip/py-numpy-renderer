@@ -269,9 +269,9 @@ def rasterize(face, frame, z_buffer, light, camera):
     #
     # Zi = (z_buffer[x, y] < z) & (-ndc[:, [3]] <= ndc[XYZ]).all(axis=1) & (ndc[:, [3]] >= ndc[XYZ]).all(axis=1)
     if camera.scene.system == SYSTEM.RH:
-        Zi = (z_buffer[x, y] < z) & (w > 0)
+        Zi = (z_buffer[x, y] < z) #& (w > 0)
     else:
-        Zi = (z_buffer[x, y] > z) & (w > 0)
+        Zi = (z_buffer[x, y] > z) #& (w > 0)
     # Zi = Zi & (bar_screen @ face.vertices[W] > 0)
     if not Zi.any():
         return Errors.EMPTY_Z

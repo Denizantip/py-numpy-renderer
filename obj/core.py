@@ -106,6 +106,14 @@ class TextureMaps:
         texture.setflags(write=1)
         return texture
 
+class ExtraFace:
+    def __init__(self, vert, uv, normal, textures=None, material=None):
+        self.vertices = vert
+        self.uv = uv
+        self.normals = normal
+
+        self.textures = textures
+        self.material = material
 
 class Face:
     def __init__(
@@ -480,35 +488,35 @@ class Light(PositionedObject, ProjectionMixin):
 class Bound:
     def __set__(self, instance: 'Scene', value: List[Camera | Light]):
         self.obj = value
-        for obj in value:
-            obj.scene = instance
+        self.obj.scene = instance
 
-            if isinstance(obj, Light) and obj.show:
-                cube = Model.load_model('obj_loader_test/cone.obj', shadowing=False)
-                cube = cube @ scale(0.1)
-                # cube = cube @ translation(obj.position)
-                cube.normals = -cube.normals
-                cube = cube @ np.linalg.inv(obj.lookat)
-                instance.add_model(cube)
+        if isinstance(value, Light) and value.show:
+            sub_model = Model.load_model('obj_loader_test/cone.obj', shadowing=False)
+            sub_model = sub_model @ scale(0.1)
+            sub_model.normals = -sub_model.normals
+            sub_model = sub_model @ np.linalg.inv(value.lookat)
+            instance.add_model(sub_model)
+        elif isinstance(value, Camera) and value.show:
+            sub_model = Model.load_model('obj_loader_test/camera.obj', shadowing=False)
+            sub_model = sub_model @ scale(0.05)
+            sub_model = sub_model @ np.linalg.inv(value.lookat)
+            instance.add_model(sub_model)
 
-            if isinstance(obj, Camera) and obj.show:
-                camera = Model.load_model('obj_loader_test/camera.obj', shadowing=False)
-                camera = camera @ scale(0.05)
-                camera = camera @ np.linalg.inv(obj.lookat)
-                instance.add_model(camera)
 
     def __get__(self, instance: 'Scene', owner):
         return self.obj
 
 
 class Scene:
-    cameras = Bound()
+    camera = Bound()
     light = Bound()
+    debug_camera = Bound()
 
     def __init__(
             self,
-            cameras=(Camera(position=(0, 0, 1)),),
-            light=(Light(position=(1, 1, 1)), ),
+            camera=Camera(position=(0, 0, 1)),
+            light=Light(position=(1, 1, 1)),
+            debug_camera=None,
             resolution=(1500, 3000),
             system=SYSTEM.RH,
             subsystem=SUBSYSTEM.DIRECTX
@@ -516,8 +524,9 @@ class Scene:
         self.system: SYSTEM = system
         self.subsystem: SUBSYSTEM = subsystem
         self.models: List[Model] = list()
-        self.cameras: Camera | List[Camera] = cameras
+        self.camera: Camera = camera
         self.light: Light = light
+        self.debug_camera: Camera | None = debug_camera
         self.resolution = resolution
 
     def add_model(self, model: Model):
@@ -525,27 +534,24 @@ class Scene:
 
     def render(self):
         frame = np.zeros((*self.resolution, 3), dtype=np.uint8)
-        z_buffer = np.full(self.resolution, -np.inf if self.system == SYSTEM.RH else np.inf, dtype=np.float32)
-        # height, width, _ = self.frame.shape
-        camera1, camera2 = self.cameras
+        z_buffer = np.full(self.resolution, -np.inf if self.system == SYSTEM.RH else self.camera.far, dtype=np.float32)
 
         # shadow_z_buffer = np.full((height, width), -np.inf)
+        # ShadowModelView = self.light.lookat
+        # ShadowProjection = self.light.projection
 
-        ModelView = camera1.lookat
-        ModelView2 = camera2.lookat
-        # ShadowModelView = self.light[0].lookat
-
-        Projection = camera1.projection
-        Projection2 = camera2.projection
-        # ShadowProjection = self.light[0].projection
-
-        Viewport = camera1.viewport
-        Viewport2 = camera2.viewport
-
+        ModelView = self.camera.lookat
+        Projection = self.camera.projection
+        Viewport = self.camera.viewport
         MVP = ModelView @ Projection
+
+
+        ModelView2 = self.debug_camera.lookat
+        Projection2 = self.debug_camera.projection
+        Viewport2 = self.debug_camera.viewport
         MVP2 = ModelView2 @ Projection2
 
-        self.light[0].set_position((np.append(self.light[0].position, 1) @ ModelView)[XYZ])
+        self.light.set_position((np.append(self.light.position, 1) @ ModelView)[XYZ])
 
         # shadow pass
         # shadow_transform = ShadowModelView @ ShadowProjection
@@ -575,115 +581,116 @@ class Scene:
             errors = [0, 0, 0, 0]
 
             for face in model.faces:
-                new_polygon = clipping(face.vertices, extract_frustum_planes(MVP2))
-                # print(new_polygon)
-                if new_polygon:
+                vertices = clipping(face.vertices, extract_frustum_planes(MVP))
 
-                    # for idx in range(len(new_polygon)):
-                    #     point = new_polygon[idx]
-                    #     new_polygon[idx] = ((point / point[3]) @ Viewport).astype(int)
+                if vertices:
+                    print(vertices)
+                    # edges = len(vertices)
+                    # color = [255,255,255]
+                    # for idx in range(edges):
+                    #     current = vertices[idx] @ MVP
+                    #     prev = vertices[(idx + 1) % edges] @ MVP
+                    #
+                    #     current = ((current / current[3]) @ Viewport).astype(int)
+                    #
+                    #     prev = ((prev / prev[3]) @ Viewport).astype(int)
+                    #
+                    #     for yy, xx, zz, _ in bresenham_line(prev, current):
+                    #
+                    #         xx = max(0, min(frame.shape[0] - 3, xx))
+                    #         yy = max(0, min(frame.shape[1] - 3, yy))
+                    #         if z_buffer[xx, yy] >= zz:
+                    #             frame[xx, yy] = color
+                    #             z_buffer[xx, yy] = zz
+                    bar = barycentric(*face.vertices[XYZ], np.array(vertices)[XYZ])
+                    uvs = bar @ face.uv
+                    normals = bar @ face.normals
+                    for v, uv, norm in zip(triangulate_float(vertices),
+                                           triangulate_float(uvs),
+                                           triangulate_float(normals)):
+                        face.uv = uv
+                        face.normals = norm
+                        face.view_vertices = v @ ModelView
+                        face.vertices = face.view_vertices @ Projection
 
-                    edges = len(new_polygon)
-                    color = [255,255,255]
-                    for idx in range(edges):
-                        current = new_polygon[idx] @ MVP
-                        prev = new_polygon[(idx + 1) % edges] @ MVP
+                        depth = 1 / face.vertices[W_COL]
+                        face.vertices *= depth  # perspective division
+                        face.vertices = face.vertices @ Viewport
+                        face.vertices[W_COL] = depth
 
-                        current = ((current / current[3]) @ Viewport).astype(int)
-
-                        prev = ((prev / prev[3]) @ Viewport).astype(int)
-
-                        for yy, xx, zz, _ in bresenham_line(prev, current):
-
-                            xx = max(0, min(frame.shape[0] - 3, xx))
-                            yy = max(0, min(frame.shape[1] - 3, yy))
-                            if z_buffer[xx, yy] >= zz:
-                                frame[xx, yy] = color
-                                z_buffer[xx, yy] = zz
-
-                face.view_vertices = face.vertices @ ModelView
-                face.vertices = face.view_vertices @ Projection
-
-                depth = 1 / face.vertices[W_COL]
-                face.vertices *= depth  # perspective division
-                face.vertices = face.vertices @ Viewport
-                face.vertices[W_COL] = depth
-
-
-
-                code = rasterize(face, frame, z_buffer, self.light[0], camera1)
-                if code:
-                    for i in range(0, 4):
-                        if (code >> i) == 1:
-                            errors[i] += 1
-                            break
+                        code = rasterize(face, frame, z_buffer, self.light, self.camera)
+                        if code:
+                            for i in range(0, 4):
+                                if (code >> i) == 1:
+                                    errors[i] += 1
+                                    break
+                        else:
+                            rendered_faces += 1
                 else:
-                    rendered_faces += 1
+                    continue
             print('Total faces', total_faces)
             print('Face rendered', rendered_faces)
             print('CLipped', errors)
 
-            x_axis = np.array([[0, 0, 0, 1], [1, 0, 0, 1]])
-            x_letter = np.array([1.05, 0, 0, 1])
+            # x_axis = np.array([[0, 0, 0, 1], [1, 0, 0, 1]])
+            # x_letter = np.array([1.05, 0, 0, 1])
+            #
+            # y_axis = np.array([[0, 0, 0, 1], [0, 1, 0, 1]])
+            # y_letter = np.array([0, 1.05, 0, 1])
+            #
+            # z_axis = np.array([[0, 0, 0, 1], [0, 0, 1, 1]])
+            # z_letter = np.array([-0.05, 0, 1.1, 1])
+            #
+            # def transformer(vert, MVP, Viewport):
+            #     vert = vert @ MVP
+            #     vert /= vert[W_COL]
+            #     vert = vert @ Viewport
+            #     vert = vert.astype(int)
+            #     return vert
+            #
+            # x_axis = transformer(x_axis, MVP, Viewport)
+            # x_letter = transformer(x_letter, MVP, Viewport)
+            #
+            # y_axis = transformer(y_axis, MVP, Viewport)
+            # y_letter = transformer(y_letter, MVP, Viewport)
+            #
+            # z_axis = transformer(z_axis, MVP, Viewport)
+            # z_letter = transformer(z_letter, MVP, Viewport)
+            #
+            # frame = Image.fromarray(frame)
+            # font = ImageFont.truetype("/usr/share/fonts/truetype/freefont/FreeSans.ttf", 20)
+            # font = ImageFont.TransposedFont(font, Image.Transpose.FLIP_TOP_BOTTOM)
+            #
+            # draw = ImageDraw.Draw(frame)
+            # R = (255, 0, 0)
+            # G = (0, 255, 0)
+            # B = (0, 0, 255)
+            #
+            # draw.text((x_letter[0], x_letter[1]), "X", font=font, fill=R)
+            # draw.text((y_letter[0], y_letter[1]), "Y", font=font, fill=G)
+            # draw.text((z_letter[0], z_letter[1]), "Z", font=ImageFont.TransposedFont(font, orientation=Image.Transpose.FLIP_TOP_BOTTOM), fill=B)
+            # frame = np.array(frame)
 
-            y_axis = np.array([[0, 0, 0, 1], [0, 1, 0, 1]])
-            y_letter = np.array([0, 1.05, 0, 1])
+            # for (start, end), color in zip([x_axis, y_axis, z_axis], [R, G, B]):
+            #     for yy, xx in bresenham_line(start[:2], end[:2]):
+            #         for i in range(3):
+            #             xx = max(0, min(frame.shape[0] - 4, xx))
+            #             yy = max(0, min(frame.shape[1] - 4, yy))
+            #             frame[xx + i, yy + i] = color
 
-            z_axis = np.array([[0, 0, 0, 1], [0, 0, 1, 1]])
-            z_letter = np.array([-0.05, 0, 1.1, 1])
-
-            def transformer(vert, MVP, Viewport):
-                vert = vert @ MVP
-                vert /= vert[W_COL]
-                vert = vert @ Viewport
-                vert = vert.astype(int)
-                return vert
-
-            x_axis = transformer(x_axis, MVP, Viewport)
-            x_letter = transformer(x_letter, MVP, Viewport)
-
-            y_axis = transformer(y_axis, MVP, Viewport)
-            y_letter = transformer(y_letter, MVP, Viewport)
-
-            z_axis = transformer(z_axis, MVP, Viewport)
-            z_letter = transformer(z_letter, MVP, Viewport)
-
-            frame = Image.fromarray(frame)
-            font = ImageFont.truetype("/usr/share/fonts/truetype/freefont/FreeSans.ttf", 20)
-            font = ImageFont.TransposedFont(font, Image.Transpose.FLIP_TOP_BOTTOM)
-
-            draw = ImageDraw.Draw(frame)
-            R = (255, 0, 0)
-            G = (0, 255, 0)
-            B = (0, 0, 255)
-
-            draw.text((x_letter[0], x_letter[1]), "X", font=font, fill=R)
-            draw.text((y_letter[0], y_letter[1]), "Y", font=font, fill=G)
-            draw.text((z_letter[0], z_letter[1]), "Z", font=ImageFont.TransposedFont(font, orientation=Image.Transpose.FLIP_TOP_BOTTOM), fill=B)
-            frame = np.array(frame)
-
-            for (start, end), color in zip([x_axis, y_axis, z_axis], [R, G, B]):
-                for yy, xx in bresenham_line(start[:2], end[:2]):
-                    for i in range(3):
-                        xx = max(0, min(frame.shape[0] - 4, xx))
-                        yy = max(0, min(frame.shape[1] - 4, yy))
-                        frame[xx + i, yy + i] = color
-
-            cube_frustum = get_view_frustum(camera2) @ np.linalg.inv(ModelView2 @ Projection2) @ MVP
-            cube_frustum[-2] = np.append(camera2.position, 1) @ MVP
-            cube_frustum[-1] = np.append(camera2.center, 1) @ MVP
-            cube_frustum /= cube_frustum[W_COL]
-
-            cube_frustum = (cube_frustum @ Viewport).astype(int)
-            for start, end in cube_frustum[indexes]:
-
-                for yy, xx, zz, _ in bresenham_line(start, end):
-                    for i in range(3):
-                        xx = max(0, min(frame.shape[0] - 3, xx))
-                        yy = max(0, min(frame.shape[1] - 3, yy))
-                        if z_buffer[xx+i, yy+i] > zz:
-                            frame[xx + i, yy + i] = (128, 128, 128)
-                            z_buffer[xx + i, yy + i] = zz
+            # cube_frustum = get_view_frustum() @ np.linalg.inv(ModelView2 @ Projection2) @ MVP
+            # cube_frustum /= cube_frustum[W_COL]
+            #
+            # cube_frustum = (cube_frustum @ Viewport).astype(int)
+            # for start, end in cube_frustum[indexes]:
+            #
+            #     for yy, xx, zz, _ in bresenham_line(start, end):
+            #         for i in range(3):
+            #             xx = max(0, min(frame.shape[0] - 3, xx))
+            #             yy = max(0, min(frame.shape[1] - 3, yy))
+            #             if z_buffer[xx+i, yy+i] > zz:
+            #                 frame[xx + i, yy + i] = (128, 128, 128)
+            #                 z_buffer[xx + i, yy + i] = zz
 
         return frame[::-1]
         # return frame.transpose((1, 0, 2))
