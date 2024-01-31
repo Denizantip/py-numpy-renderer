@@ -145,6 +145,7 @@ def opengl_perspectiveLH(fovy, aspect, z_near, z_far):
     perspective_matrix[2, 3] = -1.0
     return perspective_matrix
 
+
 def opengl_orthographicLH(fov, aspect_ratio, z_near, z_far):
     half_fov_rad = np.radians(fov / 2.0)
     half_height = np.tan(half_fov_rad) * z_near
@@ -161,6 +162,7 @@ def opengl_orthographicLH(fov, aspect_ratio, z_near, z_far):
         [0, 0, 0, 1]
     ], dtype=np.float32)
     return ortho_matrix.T
+
 
 def opengl_perspectiveRH(fovy, aspect, z_near, z_far):
     f = 1.0 / np.tan(np.radians(fovy) / 2.0)

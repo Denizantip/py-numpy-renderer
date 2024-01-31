@@ -30,7 +30,7 @@ if __name__ == "__main__":
     floor.textures.register('diffuse', 'floor_diffuse.tga', normalize=False)
     # floor.textures.register('diffuse', 'grid.tga', normalize=False)
 
-    # diablo.textures.register('normals', 'diablo3_pose/diablo3_pose_nm_tangent.tga')
+    diablo.textures.register('normals', 'diablo3_pose/diablo3_pose_nm_tangent.tga')
     # diablo.textures.register('world_normal_map', 'diablo3_pose/diablo3_pose_nm.tga')
     # diablo.textures.register("specular", 'diablo3_pose/diablo3_pose_spec.tga', normalize=False)
     diablo.textures.register("diffuse", 'diablo3_pose/diablo3_pose_diffuse.tga', normalize=False)
@@ -46,21 +46,21 @@ if __name__ == "__main__":
     # minicooper = minicooper @ rotate((0, -90, 0))
     # cube.normals *= -1
 
-    camera1 = Camera((-1, 1, 2), up=np.array((0, 1, 0)),
+    camera1 = Camera((0, 2, 0.00001), up=np.array((0, 1, 0)),
                      show=False,
-                     fovy=90,
-                     near=1,
-                     far=4,
+                     fovy=60,
+                     near=0.0001,
+                     far=2.1,
                      projection_type=PROJECTION_TYPE.PERSPECTIVE,
                      center=(0, 0, 0)
                      )
-    camera2 = Camera((0.5, 0.5, 0.5), up=np.array((0, 1, 0)),
-                     show=True,
-                     fovy=35,
-                     near=0.001,
-                     far=3.5,
+    camera2 = Camera((0, 1, 0.00001), up=np.array((0, 1, 0)),
+                     show=False,
+                     fovy=60,
+                     near=0.0001,
+                     far=2.1,
                      # center=(0, 3, 0.01),
-                     center=(0, -1, 0),
+                     center=(0, 0, 0),
                      projection_type=PROJECTION_TYPE.PERSPECTIVE,
                      )
     height, width = (1500, 1500)

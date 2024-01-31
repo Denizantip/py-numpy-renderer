@@ -30,7 +30,7 @@ def line_plane_intersection(line_point1, line_point2, plane_coefficients):
 
     denominator = plane_coefficients @ line_direction
     if abs(denominator) < 1e-10:
-        return None  # No intersection (parallel)
+        return None, None  # No intersection (parallel)
     # weight needed for texture/normals interpolation
     weight = -(plane_coefficients @ line_point1) / denominator
 

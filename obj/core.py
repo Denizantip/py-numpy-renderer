@@ -544,8 +544,6 @@ class Scene:
 
         MVP = ModelView @ Projection
         MVP2 = ModelView2 @ Projection2
-        print(extract_frustum_planes(MVP2))
-        print(get_parameterized(MVP2))
 
         self.light[0].set_position((np.append(self.light[0].position, 1) @ ModelView)[XYZ])
 
@@ -577,11 +575,7 @@ class Scene:
             errors = [0, 0, 0, 0]
 
             for face in model.faces:
-                print(face.vertices)
-                print()
                 new_polygon = clipping(face.vertices, extract_frustum_planes(MVP2))
-                print(face.vertices)
-                print()
                 # print(new_polygon)
                 if new_polygon:
 
@@ -590,7 +584,7 @@ class Scene:
                     #     new_polygon[idx] = ((point / point[3]) @ Viewport).astype(int)
 
                     edges = len(new_polygon)
-                    color = [random.randint(0, 255) for _ in range(3)]
+                    color = [255,255,255]
                     for idx in range(edges):
                         current = new_polygon[idx] @ MVP
                         prev = new_polygon[(idx + 1) % edges] @ MVP
@@ -601,17 +595,14 @@ class Scene:
 
                         for yy, xx, zz, _ in bresenham_line(prev, current):
 
-                            for i in range(3):
-                                xx = max(0, min(frame.shape[0] - 3, xx))
-                                yy = max(0, min(frame.shape[1] - 3, yy))
-                                if z_buffer[xx + i, yy + i] >= zz:
-                                    frame[xx + i, yy + i] = color
+                            xx = max(0, min(frame.shape[0] - 3, xx))
+                            yy = max(0, min(frame.shape[1] - 3, yy))
+                            if z_buffer[xx, yy] >= zz:
+                                frame[xx, yy] = color
+                                z_buffer[xx, yy] = zz
 
-                                    z_buffer[xx + i, yy + i] = zz
-                else:
-                    continue
-                face.view_tri = face.vertices @ ModelView
-                face.vertices = face.view_tri @ Projection
+                face.view_vertices = face.vertices @ ModelView
+                face.vertices = face.view_vertices @ Projection
 
                 depth = 1 / face.vertices[W_COL]
                 face.vertices *= depth  # perspective division
@@ -692,5 +683,5 @@ class Scene:
                             frame[xx + i, yy + i] = (128, 128, 128)
                             z_buffer[xx + i, yy + i] = zz
 
-        return frame[::-1, ::-1]
+        return frame[::-1]
         # return frame.transpose((1, 0, 2))
