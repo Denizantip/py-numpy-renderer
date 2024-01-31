@@ -1,31 +1,6 @@
 from dataclasses import dataclass
-from typing import Annotated
-
+from constants import *
 import numpy as np
-from numpy.typing import NDArray
-
-U = X = (..., 0)  # pts[:, 0]
-V = Y = (..., 1)  # pts[:, 1]
-Z = (..., 2)  # pts[:, 2]
-# W = (..., slice(3, 4))  # pts[:, 3]
-W = (..., 3)  # pts[:, 3]
-W_COL = (..., [3])
-XY = (..., (0, 1))  # pts[:, :2]
-XZ = (..., (0, 2))
-YZ = (..., (1, 2))
-XYZ = (..., slice(None, 3))  # pts[:, :3]
-XYZW = None
-mat3x3 = (slice(None, 3), slice(None, 3))  # ptx[:3, :3]
-add_dim = (..., np.newaxis)
-
-
-class PROJECTION:
-    OPEN_GL_PERSPECTIVE = 1
-    OPEN_GL_ORTHOGRAPHIC = 2
-
-
-vec3 = Annotated[NDArray[np.float32 | np.int32], 3]
-vec4 = Annotated[NDArray[np.float32 | np.int32], 4]
 
 
 @dataclass
@@ -79,17 +54,15 @@ def interpolate_texture_coordinates(texture_coords, weights):
     return sum(np.array(coord) * weight for coord, weight in zip(texture_coords, weights))
 
 
-def bound_box(vert, width, height):
-    out = np.zeros(4, dtype=np.int32)
+def bound_box(vert, height, width):
     min_x = vert[X].min().max(initial=0)
-    max_x = vert[X].max().min(initial=height)
+    max_x = vert[X].max().min(initial=width)
     min_y = vert[Y].min().max(initial=0)
-    max_y = vert[Y].max().min(initial=width)
+    max_y = vert[Y].max().min(initial=height)
     if min_x > max_x or min_y > max_y:
         return
 
     return np.array((min_x, max_x, min_y, max_y)).astype(int)
-    # return map(int, (min_x, max_x, min_y, max_y))
 
 
 def normalize(a, axis=-1, order=2):
@@ -98,95 +71,128 @@ def normalize(a, axis=-1, order=2):
     return a / np.expand_dims(l2, axis)
 
 
-def gluPerspective(
-        angleOfView, imageAspectRatio, near, far, core=PROJECTION.OPEN_GL_PERSPECTIVE
-):
-    """ bottom and Left should be positive top and Right are negative."""
-    # left, right, top, bottom = get_borders(angleOfView, imageAspectRatio, near, far)
-    scale = np.tan(np.deg2rad(angleOfView) * 0.5) * near
-    right = imageAspectRatio * scale
-    top = scale
-    match core:
-        case PROJECTION.OPEN_GL_PERSPECTIVE:
-            perspective = gl_symmetric_perspective
-            # perspective = gl_perspective
-        case PROJECTION.OPEN_GL_ORTHOGRAPHIC:
-            perspective = gl_symmetric_orthographic
-            # perspective = gl_orthographic
-    return perspective(top, right, near, far)
+def lookAtLH(eye, center, up=np.array([0, 1, 0])):
+    forward = normalize(center - eye).squeeze()
+    # forward = normalize(self.position - self.scene.center).squeeze()
+    right = normalize(np.cross(up, forward)).squeeze()
+    # right = normalize(np.cross(forward, self.up)).squeeze()
+    new_up = np.cross(forward, right)
+    # new_up = np.cross(right, forward)
+
+    # Create the view matrix
+    view_matrix = np.eye(4)
+    # rot = np.row_stack((right, new_up, -forward))
+    rot = np.column_stack((right, new_up, forward))
+    view_matrix[mat3x3] = rot
+    # view_matrix[3, :3] = rot.T @ -self.position
+    view_matrix[3, :3] = -eye @ rot
+
+    result = np.array([[right[0], right[1], right[2], -right @ eye],
+                       [new_up[0], new_up[1], new_up[2], -new_up @ eye],
+                       [-forward[0], -forward[1], -forward[2], forward @ eye],
+                       [0.0, 0.0, 0.0, 1.0]], dtype=np.float32).T
+
+    return result
 
 
-def gl_perspective(top, bottom, right, left, near, far):
-    M = np.array(
+def lookAtRH(eye, center, up=np.array([0, 1, 0])):
+    # forward = normalize(eye - center).squeeze()
+    forward = normalize(center - eye).squeeze()
+    right = normalize(np.cross(up, forward)).squeeze()
+    # right = normalize(np.cross(forward, self.up)).squeeze()
+    new_up = np.cross(forward, right)
+    # new_up = np.cross(right, forward)
+
+    view_matrix = np.eye(4)
+    rot = np.column_stack((right, new_up, forward))
+    view_matrix[mat3x3] = rot
+    # view_matrix[3, :3] = rot @ self.position
+    view_matrix[3, :3] = eye @ rot
+
+    result = np.array([[right[0], right[1], right[2], -right @ eye],
+                       [new_up[0], new_up[1], new_up[2], -new_up @ eye],
+                       [forward[0], forward[1], forward[2], -forward @ eye],
+                       [0.0, 0.0, 0.0, 1.0]], dtype=np.float32).T
+
+    return view_matrix
+
+
+def ViewPort(resolution, far, near, x_offset=0, y_offset=0):
+    width, height = resolution
+    depth = far - near
+    m = np.array(
         [
-            [ 2 * near / (right - left), 0                         , (right + left) / (right - left), 0                             ],  # noqa
-            [ 0                        , 2 * near / (top - bottom) , (top + bottom) / (top - bottom), 0                             ],  # noqa
-            [ 0                        , 0                         , -(far + near) / (far - near)   , -2 * far * near / (far - near)],  # noqa
-            [ 0                        , 0                         , -1                             , 0                             ],  # noqa
+            [width / 2,           0,                          0,  width / 2 + x_offset],  # noqa
+            [        0,  height / 2,                          0, height / 2 + y_offset],  # noqa
+            [        0,           0,                    depth/2,              depth/2 ],  # noqa
+            # [        0,           0,                          1,                          0],  # noqa
+            [        0,           0,                          0,                     1],  # noqa
         ]
     )
-    return M.T
+    return m.T
 
 
-def generate_perspective_projection_matrix_left_handed(fov_degrees, aspect_ratio, near, far):
-    # Convert fov degrees to radians
-    # https://perry.cz/articles/ProjectionMatrix.xhtml
-    fov_rad = np.radians(fov_degrees)
+def opengl_perspectiveLH(fovy, aspect, z_near, z_far):
+    f = 1.0 / np.tan(np.radians(fovy) / 2.0)
+    perspective_matrix = np.zeros((4, 4))
+    perspective_matrix[0, 0] = f / aspect
+    perspective_matrix[1, 1] = f
+    perspective_matrix[2, 2] = -(z_far + z_near) / (z_far - z_near)  # sign
+    # perspective_matrix[2, 2] = (z_far + z_near) / (z_near - z_far)  # sign
+    perspective_matrix[3, 2] = -(2.0 * z_far * z_near) / (z_far - z_near)
+    # perspective_matrix[3, 2] = (2.0 * z_far * z_near) / (z_near - z_far)
+    # perspective_matrix[2, 3] = 1.0
+    perspective_matrix[2, 3] = -1.0
+    return perspective_matrix
 
-    # Calculate scale based on the field of view and aspect ratio
-    scale = 1.0 / np.tan(fov_rad / 2.0)
+def opengl_orthographicLH(fov, aspect_ratio, z_near, z_far):
+    half_fov_rad = np.radians(fov / 2.0)
+    half_height = np.tan(half_fov_rad) * z_near
+    half_width = half_height * aspect_ratio
 
-    # Create the projection matrix
-    projection_matrix = np.zeros((4, 4))
-    projection_matrix[0, 0] = aspect_ratio * scale  # X scaling
-    projection_matrix[1, 1] = scale  # Y scaling
-    projection_matrix[2, 2] = (far + near) / (far - near)  # Z scaling
-    # projection_matrix[2, 2] = -far / (far - near)  # Z scaling
-    projection_matrix[2, 3] = -1.0  # Perspective projection
-    projection_matrix[3, 2] = 2 * far * near / (far - near)  # Translation
-    # projection_matrix[3, 2] = -far * near / (far - near)  # Translation
+    # Calculate orthographic matrix parameters
+    right = half_width
+    top = half_height
 
-    return projection_matrix
-
-
-def gl_symmetric_perspective(top, right, near, far):
-    M = np.array(
-        [
-            [ near / right, 0          , 0                           , 0                             ],  # noqa
-            [ 0           , near / top , 0                           , 0                             ],  # noqa
-            [ 0           , 0          , -(far + near) / (far - near), -2 * far * near / (far - near)],  # noqa
-            [ 0           , 0          , -1                          , 0                             ],  # noqa
-        ]
-    )
-    return M.T
-
-def make_orthographic_matrix(left, right, bottom, top, near, far):
-    # Compute width, height and depth of the volume
-    w = right - left
-    h = top - bottom
-    d = far - near  # For left-handed system
-
-    # Create the matrix
     ortho_matrix = np.array([
-        [2/w,   0,    0,      -(right+left)/w],
-        [0,     2/h,  0,      -(top+bottom)/h],
-        [0,     0,    -2/d,   -(far+near)/d],
-        [0,     0,    0,      1]
+        [1 / right, 0, 0, 0],
+        [0, 1 / top, 0, 0],
+        [0, 0, -2 / (z_far - z_near), -(z_far + z_near) / (z_far - z_near)],
+        [0, 0, 0, 1]
     ], dtype=np.float32)
-
     return ortho_matrix.T
 
-def gl_symmetric_orthographic(top, right, near, far):
-    M = np.array(
-        [
-            [1 / right, 0       , 0                , 0                           ],  # noqa
-            [0        , 1 / top , 0                , 0                           ],  # noqa
-            [0        , 0       , -2 / (far - near), -(far + near) / (far - near)],  # noqa
-            [0        , 0       , 0                , 1                           ],  # noqa
-        ],
-        dtype=np.float32,
-    )
-    return M.T
+def opengl_perspectiveRH(fovy, aspect, z_near, z_far):
+    f = 1.0 / np.tan(np.radians(fovy) / 2.0)
+    perspective_matrix = np.zeros((4, 4))
+    perspective_matrix[0, 0] = f / aspect
+    perspective_matrix[1, 1] = f
+    perspective_matrix[2, 2] = -(z_far + z_near) / (z_far - z_near)
+    perspective_matrix[3, 2] = -(2.0 * z_far * z_near) / (z_far - z_near)
+    perspective_matrix[2, 3] = -1.0
+    return perspective_matrix
+
+
+def directx_perspectiveRH(fovy, aspect, z_near, z_far):
+    f = 1.0 / np.tan(np.radians(fovy) / 2.0)
+    perspective_matrix = np.zeros((4, 4))
+    perspective_matrix[0, 0] = f / aspect
+    perspective_matrix[1, 1] = f
+    perspective_matrix[2, 2] = z_far / (z_far - z_near)  # sign?
+    perspective_matrix[3, 2] = z_near * z_far / (z_near - z_far)  # sign?
+    perspective_matrix[2, 3] = -1.0
+    return perspective_matrix
+
+
+def directx_perspectiveLH(fovy, aspect, z_near, z_far):
+    f = 1.0 / np.tan(np.radians(fovy) / 2.0)
+    perspective_matrix = np.zeros((4, 4))
+    perspective_matrix[0, 0] = f / aspect
+    perspective_matrix[1, 1] = f
+    perspective_matrix[2, 2] = z_far / (z_near - z_far)  # sign
+    perspective_matrix[3, 2] = -z_near * z_far / (z_far - z_near)
+    perspective_matrix[2, 3] = 1.0
+    return perspective_matrix
 
 
 def scale(factor):
@@ -279,3 +285,20 @@ def FPSViewRH(
 
     return viewMatrix
 
+
+perspectives = {
+    SUBSYSTEM.DIRECTX: {
+        PROJECTION_TYPE.PERSPECTIVE: {
+            SYSTEM.LH: directx_perspectiveLH,
+            SYSTEM.RH: directx_perspectiveRH},
+        PROJECTION_TYPE.ORTHOGRAPHIC: {}
+    },   # Directx
+    SUBSYSTEM.OPENGL: {
+        PROJECTION_TYPE.PERSPECTIVE: {
+            SYSTEM.LH: opengl_perspectiveLH,
+            SYSTEM.RH: opengl_perspectiveRH},
+        PROJECTION_TYPE.ORTHOGRAPHIC: {
+            SYSTEM.LH: opengl_orthographicLH,
+        }
+    }
+}   # OpenGL

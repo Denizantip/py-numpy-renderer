@@ -8,140 +8,94 @@ class Errors:
     EMPTY_Z = 1 << 3
 
 
-def line(x0, y0, x1, y1):
-    dx = x1 - x0
-    dy = y1 - y0
+def bresenham_line(start_point, end_point):
+    delta = end_point - start_point
+    steps = max(abs(delta)) + 1
+    if steps == 1:
+        yield start_point.astype(int)
+        return
+    step_size = delta / steps
+    for i in range(steps):
+        yield (start_point + i * step_size).astype(int)
 
-    xsign = 1 if dx > 0 else -1
-    ysign = 1 if dy > 0 else -1
 
-    dx = abs(dx)
-    dy = abs(dy)
+def bresenham_line_with_thickness(start_point, end_point, thickness=1):
+    delta = end_point - start_point
+    steps = max(abs(delta)) + 1
 
-    if dx > dy:
-        xx, xy, yx, yy = xsign, 0, 0, ysign
-    else:
-        dx, dy = dy, dx
-        xx, xy, yx, yy = 0, ysign, xsign, 0
+    if steps == 1:
+        yield start_point.astype(int)
+        return
 
-    D = 2 * dy - dx
-    y = 0
+    step_size = delta / steps
 
-    for x in range(dx + 1):
-        yield x0 + x * xx + y * yx, y0 + x * xy + y * yy
-        if D >= 0:
-            y += 1
-            D -= 2 * dx
-        D += 2 * dy
+    for t in range(-thickness // 2, thickness // 2 + 1):
+        normal = np.array([-step_size[1], step_size[0]]) if delta[0] == 0 else np.array([0, 0])
+        offset = t * normal
 
-def line3d(x0, y0, z0, x1, y1, z1):
-    dx = x1 - x0
-    dy = y1 - y0
-    dz = z1 - z0
+        for i in range(steps):
+            yield (start_point + i * step_size + offset).astype(int)
 
-    xsign = 1 if dx > 0 else -1
-    ysign = 1 if dy > 0 else -1
-    zsign = 1 if dz > 0 else -1
 
-    dx = abs(dx)
-    dy = abs(dy)
-    dz = abs(dz)
+def wu_antialiased_line(start_point, end_point):
+    def ipart(x):
+        return int(x)
 
-    if dx > dy:
-        xx, xy, yx, yy, zx, zy = xsign, 0, 0, ysign, 0, 0
-    else:
-        dx, dy, dz = dy, dx, dz
-        xx, xy, yx, yy, zx, zy = 0, ysign, xsign, 0, 0, zsign
+    def fpart(x):
+        return x - ipart(x)
 
-    xy2 = 2 * dy
-    xz2 = 2 * dz
-    yz2 = 2 * dz
+    start_point = np.array(start_point)
+    end_point = np.array(end_point)
 
-    D = xy2 - dx
-    E = xz2 - dx
-    y = z = 0
+    delta = end_point - start_point
+    steps = max(abs(delta)) + 1
 
-    for x in range(dx + 1):
-        yield x0 + x * xx + y * yx + z * zx, y0 + x * xy + y * yy + z * zy, z0 + x * xz2 + y * yz2
-        if D >= 0:
-            y += 1
-            D -= 2 * dx
-        if E >= 0:
-            z += 1
-            E -= 2 * dx
-        D += xy2
-        E += xz2
+    # if steps == 1:
+    #     yield start_point.astype(int)
+    #     return
 
-def line_3d_generator(x0, y0, z0, x1, y1, z1):
-    dx = abs(x1 - x0)
-    dy = abs(y1 - y0)
-    dz = abs(z1 - z0)
+    step_size = delta / steps
 
-    xsign = 1 if x1 > x0 else -1
-    ysign = 1 if y1 > y0 else -1
-    zsign = 1 if z1 > z0 else -1
+    for i in range(steps):
+        point = start_point + i * step_size
+        x, y, z = map(int, point)
+        intensity = 1 - fpart(point[1])
+        yield (x, y, z, intensity)
 
-    if dy > dx:
-        dx, dy = dy, dx
-        xsign, ysign = ysign, xsign
+        x, y, z = map(int, point + step_size)
+        intensity = fpart(point[1])
+        yield (x, y, z, intensity)
 
-    if dz > dx:
-        dx, dz = dz, dx
-        xsign, zsign = zsign, xsign
+def wu_antialiased_line_with_thickness(start_point, end_point, thickness=1):
+    def ipart(x):
+        return int(x)
 
-    if dz > dy:
-        dy, dz = dz, dy
-        ysign, zsign = zsign, ysign
+    def fpart(x):
+        return x - ipart(x)
 
-    xx, xy, yx, yy, zx, zy = xsign, 0, 0, ysign, 0, 0
+    start_point = np.array(start_point)
+    end_point = np.array(end_point)
 
-    xy2 = 2 * dy
-    xz2 = 2 * dz
-    yz2 = 2 * dz
+    delta = end_point - start_point
+    steps = max(abs(delta)) + 1
 
-    D = xy2 - dx
-    E = xz2 - dx
-    F = yz2 - dy
+    if steps == 1:
+        yield tuple(start_point.astype(int))
+        return
 
-    x, y, z = x0, y0, z0
+    step_size = delta / steps
+    normal = np.array([-step_size[1], step_size[0], step_size[2]])
 
-    for _ in range(max(dx, dy, dz) + 1):
-        yield x, y, z
+    for i in range(steps):
+        point = start_point + i * step_size
 
-        if D >= 0:
-            y += ysign
-            D -= 2 * dx
+        for t in range(-thickness // 2, thickness // 2 + 1):
+            offset = t * normal
+            x, y, z = map(int, point + offset)
+            intensity = 1 - fpart(point[0])
+            yield (x, y, z, intensity)
 
-        if E >= 0:
-            z += zsign
-            E -= 2 * dx
 
-        if F >= 0:
-            z += zsign
-            F -= 2 * dy
-
-        D += xy2
-        E += xz2
-        F += yz2
-
-        x += xx
-
-def bresenham(x1, y1, x2, y2):
-    m_new = 2 * (y2 - y1)
-    slope_error_new = m_new - (x2 - x1)
-
-    y = y1
-    for x in range(x1, x2 + 1):
-        yield x, y
-
-        # Add slope to increment angle formed
-        slope_error_new = slope_error_new + m_new
-
-        # Slope error reached limit, time to
-        # increment y and update slope error.
-        if slope_error_new >= 0:
-            y = y + 1
-            slope_error_new = slope_error_new - 2 * (x2 - x1)
 
 
 def DDA(x0, y0, x1, y1):
@@ -244,7 +198,7 @@ def shadow_texture(face, shadow_z_buffer, light):
     bar_screen = bar_screen[Bi]
     if not bar_screen.size:
         return
-    x, y = p[Bi].T
+    y, x = p[Bi].T
     z = bar_screen @ face.shadow_vertices[Z]
 
     # x, y, z = (bar_screen @ face.shadow_vertices[XYZ])
@@ -257,10 +211,10 @@ def shadow_texture(face, shadow_z_buffer, light):
     shadow_z_buffer[x, y] = z
 
 
-backface_culling = True
+backface_culling = False
 
 
-def rasterize(face, frame, z_buffer, shadow_z_buffer, light, camera):
+def rasterize(face, frame, z_buffer, light, camera):
     # if face.unit_normal < 0:
 
     if backface_culling and face.unit_normal[2] > 0:
@@ -284,7 +238,7 @@ def rasterize(face, frame, z_buffer, shadow_z_buffer, light, camera):
     #  the depth of the fragment is not linear in window coordinates, but the depth inverse (1╱gl_Position.w) is.
     #  Accordingly, the attributes and the clip-space barycentric coordinates, when weighted by the depth inverse,
     #  vary linearly in window coordinates.
-    box = bound_box(face.vertices[XY], width, height)
+    box = bound_box(face.vertices[XY], height, width)
     if box is None:
         return Errors.EMPTY_Z
     min_x, max_x, min_y, max_y = box
@@ -300,24 +254,26 @@ def rasterize(face, frame, z_buffer, shadow_z_buffer, light, camera):
     if not bar_screen.size:
         return Errors.EMPTY_B
 
-    x, y = p[Bi].T
+    y, x = p[Bi].T
     # y, x = (bar_screen @ np.ceil(face.vertices[XY]).astype(int)).T.astype(int)
     # x = (bar_screen @ np.floor(face.vertices[Y])).astype(int)
     # y = (bar_screen @ np.floor(face.vertices[X])).astype(int)
 
     z = bar_screen @ face.vertices[Z]
-
+    w = bar_screen @ face.vertices[W]
     # clipping
-    w = 1/face.vertices[W]
-    ndc = (face.vertices @ np.linalg.inv(camera.viewport)) / w[add_dim]
-    ndc[W] = w
-    ndc = bar_screen @ ndc
-
-    Zi = (z_buffer[x, y] < z) & (-ndc[:, [3]] <= ndc[XYZ]).all(axis=1) & (ndc[:, [3]] >= ndc[XYZ]).all(axis=1)
-
-    # Zi = z_buffer[x, y] < z
-
-    if not Zi.size:
+    # w = 1/face.vertices[W]
+    # ndc = (face.vertices @ np.linalg.inv(camera.viewport)) / w[add_dim]
+    # ndc[W] = w
+    # ndc = bar_screen @ ndc
+    #
+    # Zi = (z_buffer[x, y] < z) & (-ndc[:, [3]] <= ndc[XYZ]).all(axis=1) & (ndc[:, [3]] >= ndc[XYZ]).all(axis=1)
+    if camera.scene.system == SYSTEM.RH:
+        Zi = (z_buffer[x, y] < z) & (w > 0)
+    else:
+        Zi = (z_buffer[x, y] > z) & (w > 0)
+    # Zi = Zi & (bar_screen @ face.vertices[W] > 0)
+    if not Zi.any():
         return Errors.EMPTY_Z
 
     x, y, z = x[Zi], y[Zi], z[Zi]
@@ -333,8 +289,7 @@ def rasterize(face, frame, z_buffer, shadow_z_buffer, light, camera):
     #  General shading
     general_shading(face, bar_screen,
                     light, camera,
-                    frame, x, y, Zi,
-                    shadow_z_buffer)
+                    frame, x, y, Zi)
     # pbr(face, light, camera, frame, perspective, x, y, Zi)
     # flat_shading(face, light, image, bar_screen,x, y)
     # gouraud(face, light, image, bar_screen,x, y, Zi)
@@ -343,10 +298,10 @@ def rasterize(face, frame, z_buffer, shadow_z_buffer, light, camera):
     return 0
 
 
-def general_shading(face, bar, light, camera, frame, x, y, Zi, shadow_z_buffer):
+def general_shading(face, bar, light, camera, frame, x, y, Zi):
     """Tested"""
     specular_strength = 2  # Brightness
-    height, width, _ = frame.shape
+    # height, width, _ = frame.shape
     ############################
     # face.material.Ka
     ##############################
@@ -393,7 +348,7 @@ def general_shading(face, bar, light, camera, frame, x, y, Zi, shadow_z_buffer):
     # sb_p /= sb_p[W]
     # sb_p = sb_p @ light.viewport
 
-    const = 0.000005 if light.projection_type == PROJECTION.OPEN_GL_PERSPECTIVE else 0.005
+    const = 0.000005 if light.projection_type == PROJECTION_TYPE.PERSPECTIVE else 0.005
     bias = const * np.tan(np.arccos(diff))
     bias = np.clip(bias, 0, const).squeeze()
 
