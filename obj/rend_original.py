@@ -2,10 +2,9 @@ import time
 from tkinter import Tk, Canvas, NW
 import numpy as np
 from PIL import ImageTk, Image
-from core import Camera, Light, Scene, Model, triangulate
+from core import Camera, Light, Scene, Model, triangulate_int
 from obj.constants import PROJECTION_TYPE
-from transformation import scale, SYSTEM, SUBSYSTEM
-
+from transformation import scale, SYSTEM, SUBSYSTEM, rotate, translation
 
 if __name__ == "__main__":
     katana = Model.load_model("katana.obj")
@@ -17,9 +16,8 @@ if __name__ == "__main__":
     katana = katana @ scale(0.1)
     # minicooper = Model.load_model('minicooper.obj')
     cube = Model.load_model('obj_loader_test/cube.obj', shadowing=False)
-    cube_map = Model.load_model('obj_loader_test/cube.obj', shadowing=False)
-    cube_map = cube_map @ scale(10)
-    # cube_map.normals *= -1
+    cube_map = Model.load_model('floor.obj', shadowing=False)
+
     diablo = Model.load_model("diablo3_pose/diablo3_pose.obj")
     # deer = Model.load_model("deer.obj")
     floor = Model.load_model("floor.obj")
@@ -33,8 +31,8 @@ if __name__ == "__main__":
     floor.textures.register('diffuse', 'floor_diffuse.tga', normalize=False)
     # floor.textures.register('diffuse', 'grid.tga', normalize=False)
 
-    diablo.textures.register('normals', 'diablo3_pose/diablo3_pose_nm_tangent.tga')
-    # diablo.textures.register('world_normal_map', 'diablo3_pose/diablo3_pose_nm.tga')
+    diablo.textures.register('normals', 'diablo3_pose/diablo3_pose_nm_tangent.tga', tangent=True)
+    # diablo.textures.register('normals', 'diablo3_pose/diablo3_pose_nm.tga')
     # diablo.textures.register("specular", 'diablo3_pose/diablo3_pose_spec.tga', normalize=False)
     diablo.textures.register("diffuse", 'diablo3_pose/diablo3_pose_diffuse.tga', normalize=False)
     # diablo.textures.register("diffuse", 'grid.tga', normalize=False)
@@ -49,25 +47,29 @@ if __name__ == "__main__":
     # minicooper = minicooper @ rotate((0, -90, 0))
     # cube.normals *= -1
 
-    camera = Camera((1, 1, 2),
+    camera = Camera((-1, 0.5, 2),
                     up=np.array((0, 1, 0)),
                     show=False,
                     fovy=60,
-                    near=0.0001,
-                    far=20,
+                    near=0.5,
+                    backface_culling=True,
+                    far=10,
+                    resolution=(1500, 1500),
                     projection_type=PROJECTION_TYPE.PERSPECTIVE,
                     center=(0, 0, 0)
                     )
-    camera2 = Camera((0, 1, 3), up=np.array((0, 1, 0)),
+    camera2 = Camera((0, 0, 3), up=np.array((0, 1, 0)),
                      show=False,
                      fovy=20,
-                     near=2.3,
-                     far=3.2,
-                     # center=(0, 3, 0.01),
+                     near=0.1,
+                     far=10,
+                     x_offset=1500,
+                     resolution=(1500, 1500),
                      center=(0, 0, 0),
                      projection_type=PROJECTION_TYPE.PERSPECTIVE,
                      )
-    height, width = (1500, 1500)
+
+    height, width = (1500, 3000)
     scene = Scene(camera,
                   light,
                   debug_camera=camera2,
@@ -76,7 +78,17 @@ if __name__ == "__main__":
                   subsystem=SUBSYSTEM.OPENGL)
     scene.add_model(floor)
     scene.add_model(diablo)
-    scene.add_model(cube_map)
+
+    # cube_map = cube_map @ translation((0, 1, 0))
+    # cube_map = cube_map @ rotate((0, 90, 0))
+    # view = camera2.lookat
+    # # view[:3, 3]= 0
+    # view[3, :3]= 0
+    # MVP = np.linalg.inv(view @ camera2.projection)
+    # cube_map = cube_map @ MVP
+    # cube_map.vertices /= cube_map.vertices[:, [3]]
+
+    # scene.add_model(cube_map)
     # scene.add_model(minicooper)
     # scene.add_model(katana)
     # scene.add_model(sword)

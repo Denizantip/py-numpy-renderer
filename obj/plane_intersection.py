@@ -22,6 +22,7 @@ def line_plane_intersection(line_point1, line_point2, plane_coefficients):
 
         return intersection_point
 
+
 def is_visible(point, plane):
     return plane @ point >= 0
 
@@ -44,8 +45,7 @@ def extract_frustum_planes(matrix):
 
 def clipping(polygon, planes):
     """
-        w_coord = bar_screen @ self.vertices[W]
-        perspective = bar_screen * self.vertices[W] / w_coord[add_dim]
+        Sutherland–Hodgman algorithm to clip a polygon with a list of planes.
     """
     result_polygon = polygon
     for plane in planes:
@@ -69,11 +69,7 @@ def clipping(polygon, planes):
                     new_polygon.append(intersection_point)
 
         result_polygon = new_polygon
-    return result_polygon
-
-
-def interpolate_attr(attr1, attr2, alpha):
-    return attr1 + alpha * (attr2 - attr1)
+    return np.array(result_polygon)
 
 
 def get_parameterized(matrix):

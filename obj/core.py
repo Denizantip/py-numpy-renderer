@@ -1,13 +1,13 @@
 import os.path
-from copy import deepcopy
 
 from functools import cache
-import random
 from typing import Iterator, Optional, List
 from os import PathLike
-from PIL import Image, ImageFont, ImageDraw
+from PIL import Image
 
-from obj.frustums import indexes, get_view_frustum
+from obj.axes import draw_axis
+from obj.cube_map import CubeMap
+from obj.frustums import draw_view_frustum
 from obj.materials import Material
 from obj.plane_intersection import *
 from triangular import *
@@ -66,7 +66,7 @@ from numpy.typing import NDArray
 '''
 
 
-def triangulate(poligon):
+def triangulate_int(poligon):
     for i in range(len(poligon) - 2):
         yield np.array([poligon[0], *poligon[1 + i: 3 + i]], dtype=np.int32)
 
@@ -76,6 +76,10 @@ def triangulate_float(poligon):
         yield np.array([poligon[0], *poligon[1 + i: 3 + i]])
 
 
+def tringulate_args(el):
+    return [[0, start + 1, start + 2] for start in range(el - 2)]
+
+
 class TextureMaps:
     texture_map = {
         'diffuse': 'map_Kd',
@@ -83,21 +87,21 @@ class TextureMaps:
         'specular': 'map_Ks',
         'shininess': 'map_Ns',
         'transparency': 'map_d',
-        'normals': 'map_bump'
+        'normals': 'norm'
         }
 
     def __init__(self, model):
         self.model = model
 
-    def register(self, attr_name: str, path: PathLike | str, normalize=True):
+    def register(self, attr_name: str, path: PathLike | str, normalize=True, tangent=False):
         if attr_name not in self.texture_map:
             raise ValueError(f"{attr_name} not recognized.\nSupported: {self.texture_map.keys()}")
-        texture = self.load_texture(path)
+        texture = self.load_texture(path) / 255
+        dt = np.dtype(np.float32, metadata={'tangent': tangent})
 
         if normalize:
-            setattr(self.model.materials['default'], self.texture_map[attr_name], (texture / 255) * 2 - 1)
-        else:
-            setattr(self.model.materials['default'], self.texture_map[attr_name], ((texture / 255)))
+            texture = texture * 2 - 1
+        setattr(self.model.materials['default'], self.texture_map[attr_name], np.array(texture, dtype=dt))
 
     @staticmethod
     def load_texture(name):
@@ -105,6 +109,7 @@ class TextureMaps:
         texture = np.asarray(texture)[..., :3].copy()
         texture.setflags(write=1)
         return texture
+
 
 class ExtraFace:
     def __init__(self, vert, uv, normal, textures=None, material=None):
@@ -114,6 +119,7 @@ class ExtraFace:
 
         self.textures = textures
         self.material = material
+
 
 class Face:
     def __init__(
@@ -145,6 +151,12 @@ class Face:
     def shadow_normal(self) -> NDArray:
         a, b, c = self.shadow_vertices[XYZ]
         return normalize(np.cross(b - a, c - a)).squeeze()
+
+    @property
+    def view_normal(self) -> NDArray:
+        a, b, c = self.view_vertices[XYZ]
+        # return normalize(np.cross(b - a, c - a)).squeeze()
+        return normalize(np.cross(a - b, a - c)).squeeze()
 
     def get_UV(self, shape, bar):
         b_persp = self.screen_perspective(bar)
@@ -186,22 +198,18 @@ class Face:
         return object_color
 
     def get_normals(self, bar):
-        if hasattr(self.material, 'world_normal_map'):
-            *shape, _ = self.textures.world_normal_map.shape
+        if hasattr(self.material, 'norm'):
+            *shape, _ = self.material.norm.shape
             U, V = self.get_UV(shape, bar)
-            norm = self.textures.world_normal_map[U, V]
-
-        elif hasattr(self.material, 'map_bump'):
-            *shape, _ = self.material.map_bump.shape
-            U, V = self.get_UV(shape, bar)
-            norm = self.material.map_bump[U, V]
-            norm = (self.tangent_(bar) @ norm[add_dim]).squeeze()
+            norm = self.material.norm[U, V]
+            if self.material.norm.dtype.metadata['tangent']:
+                norm = (self.tangent_(bar) @ norm[add_dim]).squeeze()
 
         elif self.normals is not None:
             norm = bar @ self.normals
 
         else:
-            norm = bar @ np.array([self.unit_normal] * 3)
+            norm = bar @ np.array([-self.unit_normal] * 3)
 
         return normalize(norm).squeeze()
 
@@ -244,11 +252,12 @@ class Face:
 class Model:
     def __init__(self,
                  vertices: NDArray, uv: NDArray | None, normals: NDArray, faces: NDArray,
-                 shadowing: bool = False, materials: dict = None, material_group: list = None
+                 shadowing: bool = False, materials: dict = None, material_group: list = None, clip=True,
     ):
         self.vertices = vertices
         self.view_tri = np.empty_like(vertices)
         self.shadow_vertices = np.empty_like(vertices)
+        self.clip = clip
 
         self.shadowing = shadowing
         self.uv = uv
@@ -303,7 +312,7 @@ class Model:
                         _faces.append(temp)
 
                     # _faces = [[0 if idx == '' else idx for idx in face.split("/")] for face in file_line.split()[1:]]
-                    faces.extend(triangulate(_faces))
+                    faces.extend(triangulate_int(_faces))
                     continue
                 if file_line.startswith("vn "):
                     normals.append(file_line.split()[1:])
@@ -375,8 +384,9 @@ class PositionedObject:
 class ProjectionMixin:
     """Extension for Positioned objects"""
     def __init__(self,
-                 x_offset = 0,
-                 y_offset = 0,
+                 x_offset=0,
+                 y_offset=0,
+                 resolution=(1024, 1024),
                  projection_type: PROJECTION_TYPE = PROJECTION_TYPE.PERSPECTIVE,
                  up=np.array([0, 1, 0]),
                  near=0.001,
@@ -386,7 +396,7 @@ class ProjectionMixin:
         self.up = up
         self.center = np.array(center)
         self.projection_type = projection_type
-        # self.resolution = resolution
+        self.resolution = resolution
         self.near = np.linalg.norm(self.position) if self.projection_type == PROJECTION_TYPE.ORTHOGRAPHIC else near
         self.far = far
         self.fovy = fovy
@@ -396,8 +406,7 @@ class ProjectionMixin:
 
     @property
     def projection(self):
-        # width, height = self.resolution
-        width, height = self.scene.resolution
+        width, height = self.resolution
         aspect_ratio = width / height
         perspective_func = perspectives[self.scene.subsystem][self.projection_type][self.scene.system]
         return perspective_func(self.fovy, aspect_ratio, self.near, self.far)
@@ -413,8 +422,7 @@ class ProjectionMixin:
     @property
     @cache
     def viewport(self):
-        # return ViewPort(self.resolution, self.far, self.near, x_offset=self.x_offset, y_offset=self.y_offset)
-        return ViewPort(self.scene.resolution, self.far, self.near, x_offset=self.x_offset, y_offset=self.y_offset)
+        return ViewPort(self.resolution, self.far, self.near, x_offset=self.x_offset, y_offset=self.y_offset)
 
     def LinearizeDepth(self, depth):
         # z = depth * 2 - 1
@@ -429,10 +437,11 @@ class ProjectionMixin:
 
 
 class Camera(PositionedObject, ProjectionMixin):
-    def __init__(self, position, show=False, **kwargs):
+    def __init__(self, position, show=False, backface_culling=True, **kwargs):
         super(Camera, self).__init__(np.array(position))
         super(PositionedObject, self).__init__(**kwargs)
         self.show = show
+        self.backface_culling = backface_culling
 
 
 class Light(PositionedObject, ProjectionMixin):
@@ -491,17 +500,18 @@ class Bound:
         self.obj.scene = instance
 
         if isinstance(value, Light) and value.show:
-            sub_model = Model.load_model('obj_loader_test/cone.obj', shadowing=False)
+            sub_model = Model.load_model('obj_loader_test/cone1.obj', shadowing=False)
+            sub_model.clip = False
             sub_model = sub_model @ scale(0.1)
             sub_model.normals = -sub_model.normals
             sub_model = sub_model @ np.linalg.inv(value.lookat)
             instance.add_model(sub_model)
         elif isinstance(value, Camera) and value.show:
             sub_model = Model.load_model('obj_loader_test/camera.obj', shadowing=False)
+            sub_model.clip = False
             sub_model = sub_model @ scale(0.05)
             sub_model = sub_model @ np.linalg.inv(value.lookat)
             instance.add_model(sub_model)
-
 
     def __get__(self, instance: 'Scene', owner):
         return self.obj
@@ -519,7 +529,8 @@ class Scene:
             debug_camera=None,
             resolution=(1500, 3000),
             system=SYSTEM.RH,
-            subsystem=SUBSYSTEM.DIRECTX
+            subsystem=SUBSYSTEM.DIRECTX,
+            cubemap=None
     ):
         self.system: SYSTEM = system
         self.subsystem: SUBSYSTEM = subsystem
@@ -528,6 +539,7 @@ class Scene:
         self.light: Light = light
         self.debug_camera: Camera | None = debug_camera
         self.resolution = resolution
+        self.cubemap: CubeMap = cubemap
 
     def add_model(self, model: Model):
         self.models.append(model)
@@ -548,7 +560,7 @@ class Scene:
 
         ModelView2 = self.debug_camera.lookat
         Projection2 = self.debug_camera.projection
-        Viewport2 = self.debug_camera.viewport
+
         MVP2 = ModelView2 @ Projection2
 
         self.light.set_position((np.append(self.light.position, 1) @ ModelView)[XYZ])
@@ -559,17 +571,17 @@ class Scene:
         for model in self.models:
             total_faces = model._faces.shape[0]
 
-            # model.view_tri = model.vertices @ ModelView
-            # model.vertices = model.view_tri @ Projection
+            # model.view_tri = model.polygon_vertices @ ModelView
+            # model.polygon_vertices = model.view_tri @ Projection
 
             # depth = 1
             # if camera1.projection_type == PROJECTION_TYPE.PERSPECTIVE:
                 # save for perspective correct interpolation (with zero division eps)
-                # depth = 1 / model.vertices[W_COL]
-                # model.vertices *= depth  # perspective division
+                # depth = 1 / model.polygon_vertices[W_COL]
+                # model.polygon_vertices *= depth  # perspective division
 
-            # model.vertices = model.vertices @ Viewport
-            # model.vertices[W_COL] = depth
+            # model.polygon_vertices = model.polygon_vertices @ Viewport
+            # model.polygon_vertices[W_COL] = depth
 
             if model.normals is not None:
                 normals = model.normals @ ModelView[mat3x3]
@@ -578,18 +590,17 @@ class Scene:
                 model.textures.world_normal_map = normalize(model.textures.world_normal_map @ ModelView[mat3x3])
 
             rendered_faces = 0
-            errors = [0, 0, 0, 0]
+            errors = [0, 0, 0, 0, 0]
 
             for face in model.faces:
-                vertices = clipping(face.vertices, extract_frustum_planes(MVP))
+                polygon_vertices = clipping(face.vertices, extract_frustum_planes(MVP2)) if model.clip else face.vertices
 
-                if vertices:
-                    print(vertices)
-                    # edges = len(vertices)
+                if len(polygon_vertices):
+                    # edges = len(polygon_vertices)
                     # color = [255,255,255]
                     # for idx in range(edges):
-                    #     current = vertices[idx] @ MVP
-                    #     prev = vertices[(idx + 1) % edges] @ MVP
+                    #     current = polygon_vertices[idx] @ MVP
+                    #     prev = polygon_vertices[(idx + 1) % edges] @ MVP
                     #
                     #     current = ((current / current[3]) @ Viewport).astype(int)
                     #
@@ -602,23 +613,26 @@ class Scene:
                     #         if z_buffer[xx, yy] >= zz:
                     #             frame[xx, yy] = color
                     #             z_buffer[xx, yy] = zz
-                    bar = barycentric(*face.vertices[XYZ], np.array(vertices)[XYZ])
+                    bar = barycentric(*face.vertices[XYZ], polygon_vertices[XYZ])
                     uvs = bar @ face.uv
                     normals = bar @ face.normals
-                    for v, uv, norm in zip(triangulate_float(vertices),
-                                           triangulate_float(uvs),
-                                           triangulate_float(normals)):
-                        face.uv = uv
-                        face.normals = norm
-                        face.view_vertices = v @ ModelView
-                        face.vertices = face.view_vertices @ Projection
 
-                        depth = 1 / face.vertices[W_COL]
-                        face.vertices *= depth  # perspective division
-                        face.vertices = face.vertices @ Viewport
-                        face.vertices[W_COL] = depth
+                    for idx in tringulate_args(polygon_vertices.shape[0]):
+                        face.uv = uvs[idx]
+                        face.normals = normals[idx]
+                        face.vertices = polygon_vertices[idx]
+                        # face.view_vertices = polygon_vertices[idx] @ ModelView
+                        # face.vertices = face.view_vertices @ Projection
+                        #
+                        # depth = 1 / face.vertices[W_COL]
+                        # face.vertices *= depth  # perspective division
+                        # face.vertices = face.vertices @ Viewport
+                        # face.vertices[W_COL] = depth
 
                         code = rasterize(face, frame, z_buffer, self.light, self.camera)
+                        face.vertices = polygon_vertices[idx]
+                        code = rasterize(face, frame, z_buffer, self.light, self.debug_camera)
+
                         if code:
                             for i in range(0, 4):
                                 if (code >> i) == 1:
@@ -627,70 +641,14 @@ class Scene:
                         else:
                             rendered_faces += 1
                 else:
+                    errors[0] += 1
                     continue
+
             print('Total faces', total_faces)
             print('Face rendered', rendered_faces)
             print('CLipped', errors)
 
-            # x_axis = np.array([[0, 0, 0, 1], [1, 0, 0, 1]])
-            # x_letter = np.array([1.05, 0, 0, 1])
-            #
-            # y_axis = np.array([[0, 0, 0, 1], [0, 1, 0, 1]])
-            # y_letter = np.array([0, 1.05, 0, 1])
-            #
-            # z_axis = np.array([[0, 0, 0, 1], [0, 0, 1, 1]])
-            # z_letter = np.array([-0.05, 0, 1.1, 1])
-            #
-            # def transformer(vert, MVP, Viewport):
-            #     vert = vert @ MVP
-            #     vert /= vert[W_COL]
-            #     vert = vert @ Viewport
-            #     vert = vert.astype(int)
-            #     return vert
-            #
-            # x_axis = transformer(x_axis, MVP, Viewport)
-            # x_letter = transformer(x_letter, MVP, Viewport)
-            #
-            # y_axis = transformer(y_axis, MVP, Viewport)
-            # y_letter = transformer(y_letter, MVP, Viewport)
-            #
-            # z_axis = transformer(z_axis, MVP, Viewport)
-            # z_letter = transformer(z_letter, MVP, Viewport)
-            #
-            # frame = Image.fromarray(frame)
-            # font = ImageFont.truetype("/usr/share/fonts/truetype/freefont/FreeSans.ttf", 20)
-            # font = ImageFont.TransposedFont(font, Image.Transpose.FLIP_TOP_BOTTOM)
-            #
-            # draw = ImageDraw.Draw(frame)
-            # R = (255, 0, 0)
-            # G = (0, 255, 0)
-            # B = (0, 0, 255)
-            #
-            # draw.text((x_letter[0], x_letter[1]), "X", font=font, fill=R)
-            # draw.text((y_letter[0], y_letter[1]), "Y", font=font, fill=G)
-            # draw.text((z_letter[0], z_letter[1]), "Z", font=ImageFont.TransposedFont(font, orientation=Image.Transpose.FLIP_TOP_BOTTOM), fill=B)
-            # frame = np.array(frame)
-
-            # for (start, end), color in zip([x_axis, y_axis, z_axis], [R, G, B]):
-            #     for yy, xx in bresenham_line(start[:2], end[:2]):
-            #         for i in range(3):
-            #             xx = max(0, min(frame.shape[0] - 4, xx))
-            #             yy = max(0, min(frame.shape[1] - 4, yy))
-            #             frame[xx + i, yy + i] = color
-
-            # cube_frustum = get_view_frustum() @ np.linalg.inv(ModelView2 @ Projection2) @ MVP
-            # cube_frustum /= cube_frustum[W_COL]
-            #
-            # cube_frustum = (cube_frustum @ Viewport).astype(int)
-            # for start, end in cube_frustum[indexes]:
-            #
-            #     for yy, xx, zz, _ in bresenham_line(start, end):
-            #         for i in range(3):
-            #             xx = max(0, min(frame.shape[0] - 3, xx))
-            #             yy = max(0, min(frame.shape[1] - 3, yy))
-            #             if z_buffer[xx+i, yy+i] > zz:
-            #                 frame[xx + i, yy + i] = (128, 128, 128)
-            #                 z_buffer[xx + i, yy + i] = zz
+        draw_view_frustum(frame, self.camera, self.debug_camera, z_buffer)
+        frame = draw_axis(frame, self.camera)
 
         return frame[::-1]
-        # return frame.transpose((1, 0, 2))

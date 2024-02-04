@@ -8,16 +8,29 @@ class Errors:
     EMPTY_Z = 1 << 3
 
 
+# def bresenham_line(start_point, end_point):
+#     delta = end_point - start_point
+#     steps = max(abs(delta)) + 1
+#     if steps == 1:
+#         yield start_point
+#         return
+#     step_size = delta / steps
+#     for i in range(steps):
+#         yield (start_point + i * step_size)
+
 def bresenham_line(start_point, end_point):
     delta = end_point - start_point
-    steps = max(abs(delta)) + 1
+    steps = max(abs(delta[:2])) + 1
     if steps == 1:
-        yield start_point.astype(int)
+        yield start_point
         return
     step_size = delta / steps
-    for i in range(steps):
-        yield (start_point + i * step_size).astype(int)
-
+    for i in range(int(steps)):
+        # start_point[2] = 1/start_point[2]
+        interpolated_point = start_point + i * step_size
+        if interpolated_point.shape[0] >=3:
+            interpolated_point[2] = 1 / interpolated_point[2]
+        yield interpolated_point
 
 def bresenham_line_with_thickness(start_point, end_point, thickness=1):
     delta = end_point - start_point
@@ -201,9 +214,7 @@ def shadow_texture(face, shadow_z_buffer, light):
     y, x = p[Bi].T
     z = bar_screen @ face.shadow_vertices[Z]
 
-    # x, y, z = (bar_screen @ face.shadow_vertices[XYZ])
-
-    Zi = (shadow_z_buffer[x, y] < z)  # & (z < 1) & (z > -1)
+    Zi = (shadow_z_buffer[x, y] < z)
     if not Zi.size:
         return
 
@@ -211,13 +222,16 @@ def shadow_texture(face, shadow_z_buffer, light):
     shadow_z_buffer[x, y] = z
 
 
-backface_culling = False
-
-
 def rasterize(face, frame, z_buffer, light, camera):
-    # if face.unit_normal < 0:
+    face.view_vertices = face.vertices @ camera.lookat
+    face.vertices = face.view_vertices @ camera.projection
 
-    if backface_culling and face.unit_normal[2] > 0:
+    depth = 1 / face.vertices[W_COL]
+    face.vertices *= depth  # perspective division
+    face.vertices = face.vertices @ camera.viewport
+    face.vertices[W_COL] = depth
+
+    if camera.backface_culling and face.unit_normal[2] > 0:
         return Errors.BACK_FACE_CULLING
 
     height, width, _ = frame.shape
@@ -255,27 +269,17 @@ def rasterize(face, frame, z_buffer, light, camera):
         return Errors.EMPTY_B
 
     y, x = p[Bi].T
-    # y, x = (bar_screen @ np.ceil(face.vertices[XY]).astype(int)).T.astype(int)
-    # x = (bar_screen @ np.floor(face.vertices[Y])).astype(int)
-    # y = (bar_screen @ np.floor(face.vertices[X])).astype(int)
 
     z = bar_screen @ face.vertices[Z]
-    w = bar_screen @ face.vertices[W]
-    # clipping
-    # w = 1/face.vertices[W]
-    # ndc = (face.vertices @ np.linalg.inv(camera.viewport)) / w[add_dim]
-    # ndc[W] = w
-    # ndc = bar_screen @ ndc
-    #
-    # Zi = (z_buffer[x, y] < z) & (-ndc[:, [3]] <= ndc[XYZ]).all(axis=1) & (ndc[:, [3]] >= ndc[XYZ]).all(axis=1)
+
     if camera.scene.system == SYSTEM.RH:
-        Zi = (z_buffer[x, y] < z) #& (w > 0)
+        Zi = (z_buffer[x, y] < z)
     else:
-        Zi = (z_buffer[x, y] > z) #& (w > 0)
-    # Zi = Zi & (bar_screen @ face.vertices[W] > 0)
+        Zi = (z_buffer[x, y] > z)
+
     if not Zi.any():
         return Errors.EMPTY_Z
-
+    bar_screen = bar_screen[Zi]
     x, y, z = x[Zi], y[Zi], z[Zi]
 
     z_buffer[x, y] = z
@@ -287,18 +291,16 @@ def rasterize(face, frame, z_buffer, light, camera):
     # wireframe_shading(face, camera, image)
 
     #  General shading
-    general_shading(face, bar_screen,
-                    light, camera,
-                    frame, x, y, Zi)
-    # pbr(face, light, camera, frame, perspective, x, y, Zi)
-    # flat_shading(face, light, image, bar_screen,x, y)
-    # gouraud(face, light, image, bar_screen,x, y, Zi)
+    general_shading(face, bar_screen, light, camera, frame, x, y)
+    # pbr(face, light, camera, frame, bar_screen, x, y)
+    # flat_shading(face, light, frame, x, y)
+    # gouraud(face, light, frame, bar_screen, x, y)
     #
 
     return 0
 
 
-def general_shading(face, bar, light, camera, frame, x, y, Zi):
+def general_shading(face, bar, light, camera, frame, x, y):
     """Tested"""
     specular_strength = 2  # Brightness
     # height, width, _ = frame.shape
@@ -367,22 +369,18 @@ def general_shading(face, bar, light, camera, frame, x, y, Zi):
     #     diffuse[shadow] *= 0.3
     #     specular[shadow] = 0
 
-    # source = frame[x, y] * 0.5
-    # frame[x, y] = (((light.ambient + diffuse + specular) * object_color)[Zi].clip(0, 1) * 255).astype('uint8') * 0.5 + source
-    frame[x, y] = (
-                ((light.ambient * attenuation + diffuse * attenuation + specular * attenuation) * object_color ** 1.7)[
-                    Zi].clip(0.05, 1) * 255).astype('uint8')
+    frame[x, y] = ((light.ambient * attenuation + diffuse * attenuation + specular * attenuation) * object_color ** 1.7).clip(0.05, 1) * 255
 
 
-def flat_shading(face, light, frame, bar, x, y):
+def flat_shading(face, light, frame, x, y):
     """Tested"""
-    intensity = face.unit_normal @ normalize(-light.position).squeeze()
-    frame[x, y] = (intensity * 1.).clip(0.3, 1.)
+    intensity = face.view_normal @ -light.direction.squeeze()
+    frame[x, y] = intensity.clip(0.3, 1.) * 255
 
 
-def gouraud(face, light, frame, bar, x, y, Zi):
-    intensity = ((bar @ face.normals) * normalize(light.position)).sum(axis=1).clip(0, 1)[add_dim]
-    frame[x, y] = (intensity[Zi] * [1., 1., 1.])
+def gouraud(face, light, frame, bar, x, y):
+    intensity = ((bar @ face.normals) * light.direction).sum(axis=1).clip(0, 1)[add_dim]
+    frame[x, y] = (intensity * [255, 255, 255])
 
 
 def fresnelSchlick(cosTheta, F0):
@@ -421,7 +419,7 @@ def GeometrySmith(N, V, L, roughness):
     return ggx1 * ggx2
 
 
-def pbr(face, light, camera, frame, bar, x, y, Zi):
+def pbr(face, light, camera, frame, bar, x, y):
     albedo = face.get_object_color(bar)
     metallic = face.material.Pm
     roughness = face.material.Pr
@@ -465,7 +463,7 @@ def pbr(face, light, camera, frame, bar, x, y, Zi):
     # color = color / (color + (1.0))
     # color = pow(color, (1.0/2.2))
 
-    frame[x, y] = (color[Zi] * 255).astype(np.uint8)
+    frame[x, y] = (color * 255).astype(np.uint8)
 
 
 def wireframe_shading(face, camera, image):

@@ -6,6 +6,7 @@ class Material:
     Ka - defines the Ambient color of the material to be (r,g,b).
     Kd - defines the Diffuse color of the material to be (r,g,b).
     Ks - defines the Specular color of the material to be (r,g,b). This color shows up in highlights.
+    Ke - defines the Emission color of the material to be (r,g,b).
     Pm - Metalness
     Pr - Roughness
     Ke - EMission
@@ -17,8 +18,10 @@ class Material:
     Tr - defines the transparency of the material to be alpha. The default is 0.0 (not transparent at all).
     The quantities d and Tr are the opposites of each other, and specifying transparency or nontransparency
     is simply a matter of user convenience.
+    Tf - transmission filter
 
-    Ns - defines the shininess of the material to be s.
+    Ns - defines the shininess of the material to be s. Specular exponent.
+    Ni - Optical density
 
     sharpness
     illum - denotes the illumination model used by the material.
@@ -31,9 +34,12 @@ class Material:
     map_Ns filename. During rendering values are multiplied by Ns.
     map_d  filename. During rendering values are multiplied by d.
     map_bump filename. Normal map
-    map_Pm filename. Metalness
-    map_Pr filename. Roughness
-    disp filename. Height map
+    bump filename. Normal map
+    norm filename. Normal map
+    map_Pm filename. Metalness map
+    map_Pr filename. Roughness map
+    map_Ke filename. Emissoin color map
+    disp filename. Height (displacement) map.
     names a file containing a texture map, which should just be an ASCII dump of RGB values;
     """
     Pm = 1
