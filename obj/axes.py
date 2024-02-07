@@ -49,7 +49,7 @@ def draw_axis(frame, camera):
     frame = np.array(image)
 
     for (start, end), color in zip([x_axis, y_axis, z_axis], [R, G, B]):
-        for yy, xx in bresenham_line(start[:2], end[:2]):
+        for yy, xx in bresenham_line(start[:2], end[:2], camera.resolution):
             for i in range(3):
                 xx = max(0, min(frame.shape[0] - 4, int(xx)))
                 yy = max(0, min(frame.shape[1] - 4, int(yy)))

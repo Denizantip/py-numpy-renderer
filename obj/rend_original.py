@@ -4,7 +4,7 @@ import numpy as np
 from PIL import ImageTk, Image
 from core import Camera, Light, Scene, Model, triangulate_int
 from obj.constants import PROJECTION_TYPE
-from transformation import scale, SYSTEM, SUBSYSTEM, rotate, translation
+from transformation import scale, SYSTEM, SUBSYSTEM, translation
 
 if __name__ == "__main__":
     katana = Model.load_model("katana.obj")
@@ -39,37 +39,38 @@ if __name__ == "__main__":
     # diablo.textures.register("glow", 'diablo3_pose/diablo3_pose_glow.tga', normalize=False)
 
     # floor.vertices = floor.vertices @ scale(2)
-    light = Light((0.5, 0.5, 1), color=(1, 1, 1),
-                  show=False
+    light = Light((1., 0., -1), color=(1, 1, 1),
+                  show=True
                   )
     # cube = cube @ translation((-0.5, 1, 2.5))
     # diablo = diablo @ translation((0, -0.1, 0))
     # minicooper = minicooper @ rotate((0, -90, 0))
     # cube.normals *= -1
 
-    camera = Camera((-1, 0.5, 2),
-                    up=np.array((0, 1, 0)),
+    camera = Camera((1, 2, 3), up=np.array((0, 1, 0)),
                     show=False,
                     fovy=60,
                     near=0.5,
+                    far=5,
                     backface_culling=True,
-                    far=10,
                     resolution=(1500, 1500),
                     projection_type=PROJECTION_TYPE.PERSPECTIVE,
                     center=(0, 0, 0)
                     )
-    camera2 = Camera((0, 0, 3), up=np.array((0, 1, 0)),
-                     show=False,
-                     fovy=20,
-                     near=0.1,
-                     far=10,
+
+    camera2 = Camera((2, 0, -2), up=np.array((0, 1, 0)),
+                     show=True,
+                     fovy=60,
+                     near=.5,
+                     far=4,
+                     backface_culling=True,
                      x_offset=1500,
                      resolution=(1500, 1500),
                      center=(0, 0, 0),
                      projection_type=PROJECTION_TYPE.PERSPECTIVE,
                      )
 
-    height, width = (1500, 3000)
+    height, width = (1500, 2000)
     scene = Scene(camera,
                   light,
                   debug_camera=camera2,

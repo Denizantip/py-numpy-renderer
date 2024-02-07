@@ -1,4 +1,7 @@
-from transformation import *
+from obj.constants import *
+from transformation import bound_box, barycentric, normalize
+
+import numpy as np
 
 
 class Errors:
@@ -6,6 +9,7 @@ class Errors:
     WRONG_MIN_MAX = 1 << 1
     EMPTY_B = 1 << 2
     EMPTY_Z = 1 << 3
+    CLIPPED = 1 << 4
 
 
 # def bresenham_line(start_point, end_point):
@@ -18,19 +22,22 @@ class Errors:
 #     for i in range(steps):
 #         yield (start_point + i * step_size)
 
-def bresenham_line(start_point, end_point):
+def bresenham_line(start_point, end_point, bound):
+
     delta = end_point - start_point
     steps = max(abs(delta[:2])) + 1
-    if steps == 1:
-        yield start_point
-        return
+    # if steps == 1:
+    #     yield start_point
+    #     return
     step_size = delta / steps
     for i in range(int(steps)):
-        # start_point[2] = 1/start_point[2]
         interpolated_point = start_point + i * step_size
-        if interpolated_point.shape[0] >=3:
+        if (interpolated_point[:2] > bound).any() or (interpolated_point[:2] < 0).any():
+            continue
+        if interpolated_point.shape[0] >= 3:
             interpolated_point[2] = 1 / interpolated_point[2]
         yield interpolated_point
+
 
 def bresenham_line_with_thickness(start_point, end_point, thickness=1):
     delta = end_point - start_point
@@ -231,7 +238,12 @@ def rasterize(face, frame, z_buffer, light, camera):
     face.vertices = face.vertices @ camera.viewport
     face.vertices[W_COL] = depth
 
-    if camera.backface_culling and face.unit_normal[2] > 0:
+    if camera.scene.system == SYSTEM.RH:
+        culling = face.unit_normal[2] < 0
+    else:
+        culling = face.unit_normal[2] < 0
+
+    if camera.backface_culling and culling:
         return Errors.BACK_FACE_CULLING
 
     height, width, _ = frame.shape
@@ -258,7 +270,7 @@ def rasterize(face, frame, z_buffer, light, camera):
     min_x, max_x, min_y, max_y = box
     p = np.mgrid[min_x: max_x, min_y: max_y].reshape(2, -1).T
 
-    bar_screen = barycentric(*face.vertices[XY].astype(np.int64), p)
+    bar_screen = barycentric(*face.vertices[XY].astype(np.int32), p)
     if bar_screen is None:
         return Errors.EMPTY_B
 
@@ -273,9 +285,9 @@ def rasterize(face, frame, z_buffer, light, camera):
     z = bar_screen @ face.vertices[Z]
 
     if camera.scene.system == SYSTEM.RH:
-        Zi = (z_buffer[x, y] < z)
+        Zi = (z_buffer[x, y] <= z)
     else:
-        Zi = (z_buffer[x, y] > z)
+        Zi = (z_buffer[x, y] >= z)
 
     if not Zi.any():
         return Errors.EMPTY_Z

@@ -46,6 +46,7 @@ def extract_frustum_planes(matrix):
 def clipping(polygon, planes):
     """
         Sutherland–Hodgman algorithm to clip a polygon with a list of planes.
+        Forward solution. Iterates through all edges and all planes.
     """
     result_polygon = polygon
     for plane in planes:

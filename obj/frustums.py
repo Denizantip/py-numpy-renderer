@@ -47,7 +47,7 @@ def split_triangle_lines(tri):
         yield start, end
 
 
-def draw_view_frustum(frame, camera, debug_camera, z_buffer):
+def draw_view_frustum(frame, camera, debug_camera, z_buffer, sign):
     cube_frustum = get_view_frustum() @ np.linalg.inv(debug_camera.lookat @ debug_camera.projection) @ camera.lookat @ camera.projection
     cube_frustum /= cube_frustum[W_COL]
     cube_frustum = cube_frustum @ camera.viewport
@@ -55,10 +55,12 @@ def draw_view_frustum(frame, camera, debug_camera, z_buffer):
     # for triangle in cube_frustum[faces]:
     for start, end in cube_frustum[edges]:
         # for start, end in split_triangle_lines(triangle):
-        for yy, xx, zz in bresenham_line(start[XYZ], end[XYZ]):
+        for yy, xx, zz in bresenham_line(start[XYZ], end[XYZ], camera.resolution):
             for i in range(3):
                 xx = max(0, min(frame.shape[0] - 3, int(xx)))
                 yy = max(0, min(frame.shape[1] - 3, int(yy)))
-                if z_buffer[xx + i, yy + i] > 1 / zz:
+
+                # if z_buffer[xx + i, yy + i] > 1 / zz:
+                if (z_buffer[xx + i, yy + i] - 1 / zz) * sign > 0:
                     frame[xx + i, yy + i] = (64, 64, 128)
                     z_buffer[xx + i, yy + i] = zz

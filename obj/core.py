@@ -10,6 +10,7 @@ from obj.cube_map import CubeMap
 from obj.frustums import draw_view_frustum
 from obj.materials import Material
 from obj.plane_intersection import *
+from obj.transformation import ViewPort, perspectives, scale, looka_at_translate, look_at_rotate_lh, look_at_rotate_rh
 from triangular import *
 from numpy.typing import NDArray
 
@@ -412,15 +413,23 @@ class ProjectionMixin:
         return perspective_func(self.fovy, aspect_ratio, self.near, self.far)
 
     @property
-    @cache
-    def lookat(self):
+    def rotate(self):
         if self.scene.system == SYSTEM.LH:
-            return lookAtLH(self.position, self.center, self.up)
+            return look_at_rotate_lh(self.position, self.center, self.up)
+            # return look_at(self.position, self.center, self.up)
         elif self.scene.system == SYSTEM.RH:
-            return lookAtRH(self.position, self.center, self.up)
+            return look_at_rotate_rh(self.position, self.center, self.up)
 
     @property
-    @cache
+    def lookat(self):
+        if self.scene.system == SYSTEM.LH:
+            return looka_at_translate(self.position) @ look_at_rotate_lh(self.center, self.position, self.up)
+            # return look_at(self.position, self.center, self.up)
+        elif self.scene.system == SYSTEM.RH:
+            # return looka_at_translate(self.position) @ look_at_rotate_rh(self.center, self.position, self.up)
+            return looka_at_translate(self.position) @ look_at_rotate_rh(self.center, self.position, self.up)
+
+    @property
     def viewport(self):
         return ViewPort(self.resolution, self.far, self.near, x_offset=self.x_offset, y_offset=self.y_offset)
 
@@ -500,17 +509,20 @@ class Bound:
         self.obj.scene = instance
 
         if isinstance(value, Light) and value.show:
-            sub_model = Model.load_model('obj_loader_test/cone1.obj', shadowing=False)
+            sub_model = Model.load_model('obj_loader_test/sphere.obj', shadowing=False)
             sub_model.clip = False
             sub_model = sub_model @ scale(0.1)
-            sub_model.normals = -sub_model.normals
             sub_model = sub_model @ np.linalg.inv(value.lookat)
+            sub_model.normals = -sub_model.normals @ np.linalg.inv(value.lookat[mat3x3])
             instance.add_model(sub_model)
+
         elif isinstance(value, Camera) and value.show:
             sub_model = Model.load_model('obj_loader_test/camera.obj', shadowing=False)
             sub_model.clip = False
             sub_model = sub_model @ scale(0.05)
             sub_model = sub_model @ np.linalg.inv(value.lookat)
+            sub_model.normals = sub_model.normals @ np.linalg.inv(value.lookat[mat3x3])
+            # sub_model = sub_model @ value.lookat
             instance.add_model(sub_model)
 
     def __get__(self, instance: 'Scene', owner):
@@ -527,7 +539,7 @@ class Scene:
             camera=Camera(position=(0, 0, 1)),
             light=Light(position=(1, 1, 1)),
             debug_camera=None,
-            resolution=(1500, 3000),
+            resolution=(1500, 1500),
             system=SYSTEM.RH,
             subsystem=SUBSYSTEM.DIRECTX,
             cubemap=None
@@ -546,7 +558,7 @@ class Scene:
 
     def render(self):
         frame = np.zeros((*self.resolution, 3), dtype=np.uint8)
-        z_buffer = np.full(self.resolution, -np.inf if self.system == SYSTEM.RH else self.camera.far, dtype=np.float32)
+        z_buffer = np.full(self.resolution, -np.inf if self.system == SYSTEM.RH else np.inf, dtype=np.float32)
 
         # shadow_z_buffer = np.full((height, width), -np.inf)
         # ShadowModelView = self.light.lookat
@@ -557,13 +569,13 @@ class Scene:
         Viewport = self.camera.viewport
         MVP = ModelView @ Projection
 
-
         ModelView2 = self.debug_camera.lookat
         Projection2 = self.debug_camera.projection
 
         MVP2 = ModelView2 @ Projection2
-
+        mvp_planes = extract_frustum_planes(MVP2)
         self.light.set_position((np.append(self.light.position, 1) @ ModelView)[XYZ])
+        # self.light.set_position((np.append(self.light.position, 1) @ self.camera.rotate)[XYZ])
 
         # shadow pass
         # shadow_transform = ShadowModelView @ ShadowProjection
@@ -585,70 +597,74 @@ class Scene:
 
             if model.normals is not None:
                 normals = model.normals @ ModelView[mat3x3]
+                # normals = model.normals @ self.camera.rotate[mat3x3]
                 model.normals = normalize(normals)
             if hasattr(model.textures, 'world_normal_map'):
                 model.textures.world_normal_map = normalize(model.textures.world_normal_map @ ModelView[mat3x3])
+                # model.textures.world_normal_map = normalize(model.textures.world_normal_map @ self.camera.rotate[XYZ])
 
             rendered_faces = 0
             errors = [0, 0, 0, 0, 0]
 
             for face in model.faces:
-                polygon_vertices = clipping(face.vertices, extract_frustum_planes(MVP2)) if model.clip else face.vertices
+                visible_all = (face.vertices @ mvp_planes.T > 0).all()
+                if visible_all:  # all vertices are visible (Inside view frustum)
+                    code = rasterize(face, frame, z_buffer, self.light, self.camera)
+                    # code = rasterize(face, frame, z_buffer, self.light, self.debug_camera)
 
-                if len(polygon_vertices):
-                    # edges = len(polygon_vertices)
-                    # color = [255,255,255]
-                    # for idx in range(edges):
-                    #     current = polygon_vertices[idx] @ MVP
-                    #     prev = polygon_vertices[(idx + 1) % edges] @ MVP
-                    #
-                    #     current = ((current / current[3]) @ Viewport).astype(int)
-                    #
-                    #     prev = ((prev / prev[3]) @ Viewport).astype(int)
-                    #
-                    #     for yy, xx, zz, _ in bresenham_line(prev, current):
-                    #
-                    #         xx = max(0, min(frame.shape[0] - 3, xx))
-                    #         yy = max(0, min(frame.shape[1] - 3, yy))
-                    #         if z_buffer[xx, yy] >= zz:
-                    #             frame[xx, yy] = color
-                    #             z_buffer[xx, yy] = zz
-                    bar = barycentric(*face.vertices[XYZ], polygon_vertices[XYZ])
-                    uvs = bar @ face.uv
-                    normals = bar @ face.normals
+                else:  # some vertices are visible
+                    polygon_vertices = clipping(face.vertices, mvp_planes) if model.clip else face.vertices
 
-                    for idx in tringulate_args(polygon_vertices.shape[0]):
-                        face.uv = uvs[idx]
-                        face.normals = normals[idx]
-                        face.vertices = polygon_vertices[idx]
-                        # face.view_vertices = polygon_vertices[idx] @ ModelView
-                        # face.vertices = face.view_vertices @ Projection
+                    if len(polygon_vertices):
+                        # edges = len(polygon_vertices)
+                        # color = [255,255,255]
+                        # for idx in range(edges):
+                        #     current = polygon_vertices[idx] @ MVP
+                        #     prev = polygon_vertices[(idx + 1) % edges] @ MVP
                         #
-                        # depth = 1 / face.vertices[W_COL]
-                        # face.vertices *= depth  # perspective division
-                        # face.vertices = face.vertices @ Viewport
-                        # face.vertices[W_COL] = depth
+                        #     current = ((current / current[3]) @ Viewport).astype(int)
+                        #
+                        #     prev = ((prev / prev[3]) @ Viewport).astype(int)
+                        #
+                        #     for yy, xx, zz, _ in bresenham_line(prev, current):
+                        #
+                        #         xx = max(0, min(frame.shape[0] - 3, int(xx)))
+                        #         yy = max(0, min(frame.shape[1] - 3, int(yy)))
+                        #         if z_buffer[xx, yy] >= 1/zz:
+                        #             frame[xx, yy] = color
+                        #             z_buffer[xx, yy] = zz
+                        bar = barycentric(*face.vertices[XYZ], polygon_vertices[XYZ])
+                        uvs = bar @ face.uv
+                        normals = bar @ face.normals
 
-                        code = rasterize(face, frame, z_buffer, self.light, self.camera)
-                        face.vertices = polygon_vertices[idx]
-                        code = rasterize(face, frame, z_buffer, self.light, self.debug_camera)
+                        for idx in tringulate_args(polygon_vertices.shape[0]):
+                            face.uv = uvs[idx]
+                            face.normals = normals[idx]
+                            face.vertices = polygon_vertices[idx]
+                            # face.view_vertices = polygon_vertices[idx] @ ModelView
+                            # face.vertices = face.view_vertices @ Projection
+                            #
+                            # depth = 1 / face.vertices[W_COL]
+                            # face.vertices *= depth  # perspective division
+                            # face.vertices = face.vertices @ Viewport
+                            # face.vertices[W_COL] = depth
+                            code = rasterize(face, frame, z_buffer, self.light, self.camera)
+                            # code = rasterize(face, frame, z_buffer, self.light, self.debug_camera)
+                    else:
+                        code = Errors.CLIPPED
 
-                        if code:
-                            for i in range(0, 4):
-                                if (code >> i) == 1:
-                                    errors[i] += 1
-                                    break
-                        else:
-                            rendered_faces += 1
+                if code:
+                    for i in range(0, 4):
+                        if (code >> i) == 1:
+                            errors[i] += 1
+                            break
                 else:
-                    errors[0] += 1
-                    continue
-
+                    rendered_faces += 1
             print('Total faces', total_faces)
             print('Face rendered', rendered_faces)
             print('CLipped', errors)
 
-        draw_view_frustum(frame, self.camera, self.debug_camera, z_buffer)
+        draw_view_frustum(frame, self.camera, self.debug_camera, z_buffer, 1 if self.system == SYSTEM.LH else -1)
         frame = draw_axis(frame, self.camera)
 
         return frame[::-1]

@@ -18,7 +18,7 @@ class CubeMap:
         texture.setflags(write=1)
         return texture
 
-    def __getitem__(self, item):
+    def get_textture(self, item):
         match item:
             case 0:
                 return self.left
@@ -33,7 +33,7 @@ class CubeMap:
             case 5:
                 return self.back
 
-    def get_cube_map_face_and_uv(self, direction):
+    def __getitem__(self, direction):
         abs_direction = np.abs(direction)
         max_axis = np.argmax(abs_direction)
 
@@ -46,17 +46,13 @@ class CubeMap:
 
         s = direction[(max_axis + 1) % 3] if direction[max_axis] > 0 else -direction[(max_axis + 1) % 3]
         t = direction[(max_axis + 2) % 3] if direction[max_axis] > 0 else -direction[(max_axis + 2) % 3]
-
+        print(s, t)
         u = (s + 1) / 2
         v = (t + 1) / 2
+        print(u, v)
 
-        return self[face_index][u, v]
+        return self.get_textture(face_index)[u, v]
 
-# view = np.linalg.inv(camera.lookat)
-# view[:3, 3] = 0
-# MVP = np.linalg.inv(view @ camera.projection)
-# verts = verts @ MVP
-# normalize(verts / verts[W_COL])
 
 import numpy as np
 

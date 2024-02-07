@@ -62,7 +62,7 @@ def bound_box(vert, height, width):
     if min_x > max_x or min_y > max_y:
         return
 
-    return np.array((min_x, max_x, min_y, max_y)).astype(int)
+    return np.array((min_x, max_x, min_y, max_y)).round().astype(np.int32)
 
 
 def normalize(a, axis=-1, order=2):
@@ -72,9 +72,9 @@ def normalize(a, axis=-1, order=2):
 
 
 def lookAtLH(eye, center, up=np.array([0, 1, 0])):
-    forward = normalize(center - eye).squeeze()
+    forward = normalize(center - eye).ravel()
     # forward = normalize(self.position - self.scene.center).squeeze()
-    right = normalize(np.cross(up, forward)).squeeze()
+    right = normalize(np.cross(up, forward)).ravel()
     # right = normalize(np.cross(forward, self.up)).squeeze()
     new_up = np.cross(forward, right)
     # new_up = np.cross(right, forward)
@@ -82,9 +82,9 @@ def lookAtLH(eye, center, up=np.array([0, 1, 0])):
     # Create the view matrix
     view_matrix = np.eye(4)
     # rot = np.row_stack((right, new_up, -forward))
-    rot = np.column_stack((right, new_up, forward))
+    rot = np.column_stack((right, new_up, -forward))
     view_matrix[mat3x3] = rot
-    # view_matrix[3, :3] = rot.T @ -self.position
+    # view_matrix[:3, 3] = rot @ -eye
     view_matrix[3, :3] = -eye @ rot
 
     result = np.array([[right[0], right[1], right[2], -right @ eye],
@@ -92,7 +92,33 @@ def lookAtLH(eye, center, up=np.array([0, 1, 0])):
                        [-forward[0], -forward[1], -forward[2], forward @ eye],
                        [0.0, 0.0, 0.0, 1.0]], dtype=np.float32).T
 
-    return result
+    # return result
+    return view_matrix
+
+
+def looka_at_translate(eye):
+    tr = np.eye(4)
+    tr[3, :3] = -eye
+    return tr
+
+
+def look_at_rotate_lh(eye, center, up):
+    forward = normalize(center - eye).ravel()
+    right = normalize(np.cross(up, forward)).ravel()
+    new_up = np.cross(forward, right)
+    rot = np.eye(4)
+    rot[mat3x3] = np.column_stack((right, new_up, -forward))
+    return rot
+
+
+def look_at_rotate_rh(eye, center, up):
+    forward = normalize(center - eye).squeeze()
+    right = normalize(np.cross(up, forward)).squeeze()
+    new_up = np.cross(forward, right)
+    rot = np.eye(4)
+    rot[mat3x3] = np.column_stack((right, new_up, forward))
+    return rot
+
 
 
 def lookAtRH(eye, center, up=np.array([0, 1, 0])):
@@ -132,20 +158,6 @@ def ViewPort(resolution, far, near, x_offset=0, y_offset=0):
     return m.T
 
 
-def opengl_perspectiveLH(fovy, aspect, z_near, z_far):
-    f = 1.0 / np.tan(np.radians(fovy) / 2.0)
-    perspective_matrix = np.zeros((4, 4))
-    perspective_matrix[0, 0] = f / aspect
-    perspective_matrix[1, 1] = f
-    perspective_matrix[2, 2] = -(z_far + z_near) / (z_far - z_near)  # sign
-    # perspective_matrix[2, 2] = (z_far + z_near) / (z_near - z_far)  # sign
-    perspective_matrix[3, 2] = -(2.0 * z_far * z_near) / (z_far - z_near)
-    # perspective_matrix[3, 2] = (2.0 * z_far * z_near) / (z_near - z_far)
-    # perspective_matrix[2, 3] = 1.0
-    perspective_matrix[2, 3] = -1.0
-    return perspective_matrix
-
-
 def opengl_orthographicLH(fov, aspect_ratio, z_near, z_far):
     half_fov_rad = np.radians(fov / 2.0)
     half_height = np.tan(half_fov_rad) * z_near
@@ -164,34 +176,54 @@ def opengl_orthographicLH(fov, aspect_ratio, z_near, z_far):
     return ortho_matrix.T
 
 
+def opengl_perspectiveLH(fovy, aspect, z_near, z_far):
+    f = 1.0 / np.tan(np.radians(fovy) / 2.0)
+    perspective_matrix = np.zeros((4, 4))
+    perspective_matrix[0, 0] = f / aspect
+    perspective_matrix[1, 1] = f
+    perspective_matrix[2, 2] = (z_far + z_near) / (z_far - z_near)  # sign
+    # perspective_matrix[2, 2] = (z_far + z_near) / (z_near - z_far)  # sign
+    perspective_matrix[3, 2] = -2.0 * z_far * z_near / (z_far - z_near)
+    # perspective_matrix[3, 2] = (2.0 * z_far * z_near) / (z_near - z_far)
+    # perspective_matrix[2, 3] = 1.0
+    perspective_matrix[2, 3] = 1.0
+    return perspective_matrix
+
+
 def opengl_perspectiveRH(fovy, aspect, z_near, z_far):
     f = 1.0 / np.tan(np.radians(fovy) / 2.0)
     perspective_matrix = np.zeros((4, 4))
     perspective_matrix[0, 0] = f / aspect
     perspective_matrix[1, 1] = f
-    perspective_matrix[2, 2] = -(z_far + z_near) / (z_far - z_near)
-    perspective_matrix[3, 2] = -(2.0 * z_far * z_near) / (z_far - z_near)
+    perspective_matrix[2, 2] = (z_far + z_near) / (z_far - z_near)
+    perspective_matrix[3, 2] = 2.0 * z_far * z_near / (z_far - z_near)
     perspective_matrix[2, 3] = -1.0
     return perspective_matrix
 
 
 def directx_perspectiveRH(fovy, aspect, z_near, z_far):
+    """
+    https://learn.microsoft.com/ru-ru/windows/win32/direct3d9/d3dxmatrixperspectivefovrh
+    """
     f = 1.0 / np.tan(np.radians(fovy) / 2.0)
     perspective_matrix = np.zeros((4, 4))
     perspective_matrix[0, 0] = f / aspect
     perspective_matrix[1, 1] = f
-    perspective_matrix[2, 2] = z_far / (z_far - z_near)  # sign?
+    perspective_matrix[2, 2] = z_far / (z_near - z_far)  # sign?
     perspective_matrix[3, 2] = z_near * z_far / (z_near - z_far)  # sign?
     perspective_matrix[2, 3] = -1.0
     return perspective_matrix
 
 
 def directx_perspectiveLH(fovy, aspect, z_near, z_far):
+    """
+    https://learn.microsoft.com/ru-ru/windows/win32/direct3d9/d3dxmatrixperspectivefovlh
+    """
     f = 1.0 / np.tan(np.radians(fovy) / 2.0)
     perspective_matrix = np.zeros((4, 4))
     perspective_matrix[0, 0] = f / aspect
     perspective_matrix[1, 1] = f
-    perspective_matrix[2, 2] = z_far / (z_near - z_far)  # sign
+    perspective_matrix[2, 2] = z_far / (z_far - z_near)  # sign
     perspective_matrix[3, 2] = -z_near * z_far / (z_far - z_near)
     perspective_matrix[2, 3] = 1.0
     return perspective_matrix
@@ -220,7 +252,7 @@ def translation(vec):
     return translation_matrix.T
 
 
-def rotate(a):
+def rotate_xyz(a):
     x, y, z = np.deg2rad(a)
 
     rotate_x = np.array(
