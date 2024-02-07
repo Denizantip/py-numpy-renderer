@@ -558,7 +558,7 @@ class Scene:
 
     def render(self):
         frame = np.zeros((*self.resolution, 3), dtype=np.uint8)
-        z_buffer = np.full(self.resolution, -np.inf if self.system == SYSTEM.RH else np.inf, dtype=np.float32)
+        z_buffer = np.full(self.resolution, np.inf if self.system == SYSTEM.RH else -np.inf, dtype=np.float32)
 
         # shadow_z_buffer = np.full((height, width), -np.inf)
         # ShadowModelView = self.light.lookat

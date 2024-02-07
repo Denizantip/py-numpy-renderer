@@ -285,9 +285,9 @@ def rasterize(face, frame, z_buffer, light, camera):
     z = bar_screen @ face.vertices[Z]
 
     if camera.scene.system == SYSTEM.RH:
-        Zi = (z_buffer[x, y] <= z)
-    else:
         Zi = (z_buffer[x, y] >= z)
+    else:
+        Zi = (z_buffer[x, y] <= z)
 
     if not Zi.any():
         return Errors.EMPTY_Z

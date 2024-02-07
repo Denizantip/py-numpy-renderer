@@ -61,6 +61,6 @@ def draw_view_frustum(frame, camera, debug_camera, z_buffer, sign):
                 yy = max(0, min(frame.shape[1] - 3, int(yy)))
 
                 # if z_buffer[xx + i, yy + i] > 1 / zz:
-                if (z_buffer[xx + i, yy + i] - 1 / zz) * sign > 0:
+                if (z_buffer[xx + i, yy + i] - 1 / zz) * sign < 0:
                     frame[xx + i, yy + i] = (64, 64, 128)
                     z_buffer[xx + i, yy + i] = zz

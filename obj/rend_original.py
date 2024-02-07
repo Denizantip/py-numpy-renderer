@@ -39,7 +39,7 @@ if __name__ == "__main__":
     # diablo.textures.register("glow", 'diablo3_pose/diablo3_pose_glow.tga', normalize=False)
 
     # floor.vertices = floor.vertices @ scale(2)
-    light = Light((1., 0., -1), color=(1, 1, 1),
+    light = Light((2.2, 0., -2.2), color=(1, 1, 1),
                   show=True
                   )
     # cube = cube @ translation((-0.5, 1, 2.5))
