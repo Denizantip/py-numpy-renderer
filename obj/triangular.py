@@ -238,12 +238,7 @@ def rasterize(face, frame, z_buffer, light, camera):
     face.vertices = face.vertices @ camera.viewport
     face.vertices[W_COL] = depth
 
-    if camera.scene.system == SYSTEM.RH:
-        culling = face.unit_normal[2] < 0
-    else:
-        culling = face.unit_normal[2] < 0
-
-    if camera.backface_culling and culling:
+    if camera.backface_culling and face.unit_normal[2] < 0:
         return Errors.BACK_FACE_CULLING
 
     height, width, _ = frame.shape

@@ -31,7 +31,7 @@ if __name__ == "__main__":
     floor.textures.register('diffuse', 'floor_diffuse.tga', normalize=False)
     # floor.textures.register('diffuse', 'grid.tga', normalize=False)
 
-    diablo.textures.register('normals', 'diablo3_pose/diablo3_pose_nm_tangent.tga', tangent=True)
+    # diablo.textures.register('normals', 'diablo3_pose/diablo3_pose_nm_tangent.tga', tangent=True)
     # diablo.textures.register('normals', 'diablo3_pose/diablo3_pose_nm.tga')
     # diablo.textures.register("specular", 'diablo3_pose/diablo3_pose_spec.tga', normalize=False)
     diablo.textures.register("diffuse", 'diablo3_pose/diablo3_pose_diffuse.tga', normalize=False)
@@ -39,8 +39,8 @@ if __name__ == "__main__":
     # diablo.textures.register("glow", 'diablo3_pose/diablo3_pose_glow.tga', normalize=False)
 
     # floor.vertices = floor.vertices @ scale(2)
-    light = Light((2.2, 0., -2.2), color=(1, 1, 1),
-                  show=True
+    light = Light((1., 0., 1.8), color=(1, 1, 1),
+                  show=False
                   )
     # cube = cube @ translation((-0.5, 1, 2.5))
     # diablo = diablo @ translation((0, -0.1, 0))
@@ -59,9 +59,9 @@ if __name__ == "__main__":
                     )
 
     camera2 = Camera((2, 0, -2), up=np.array((0, 1, 0)),
-                     show=True,
+                     show=False,
                      fovy=60,
-                     near=.5,
+                     near=.00005,
                      far=4,
                      backface_culling=True,
                      x_offset=1500,
@@ -76,7 +76,7 @@ if __name__ == "__main__":
                   debug_camera=camera2,
                   resolution=(height, width),
                   system=SYSTEM.LH,
-                  subsystem=SUBSYSTEM.OPENGL)
+                  subsystem=SUBSYSTEM.OPENGL,)
     scene.add_model(floor)
     scene.add_model(diablo)
 

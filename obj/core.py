@@ -112,16 +112,6 @@ class TextureMaps:
         return texture
 
 
-class ExtraFace:
-    def __init__(self, vert, uv, normal, textures=None, material=None):
-        self.vertices = vert
-        self.uv = uv
-        self.normals = normal
-
-        self.textures = textures
-        self.material = material
-
-
 class Face:
     def __init__(
         self, instance, Vi: NDArray, Ti: Optional[NDArray]=None, Ni: Optional[NDArray]=None,
@@ -504,7 +494,7 @@ class Light(PositionedObject, ProjectionMixin):
 
 
 class Bound:
-    def __set__(self, instance: 'Scene', value: List[Camera | Light]):
+    def __set__(self, instance: 'Scene', value: Camera | Light):
         self.obj = value
         self.obj.scene = instance
 
@@ -522,7 +512,6 @@ class Bound:
             sub_model = sub_model @ scale(0.05)
             sub_model = sub_model @ np.linalg.inv(value.lookat)
             sub_model.normals = sub_model.normals @ np.linalg.inv(value.lookat[mat3x3])
-            # sub_model = sub_model @ value.lookat
             instance.add_model(sub_model)
 
     def __get__(self, instance: 'Scene', owner):
@@ -597,10 +586,11 @@ class Scene:
 
             if model.normals is not None:
                 normals = model.normals @ ModelView[mat3x3]
-                # normals = model.normals @ self.camera.rotate[mat3x3]
                 model.normals = normalize(normals)
-            if hasattr(model.textures, 'world_normal_map'):
-                model.textures.world_normal_map = normalize(model.textures.world_normal_map @ ModelView[mat3x3])
+            if hasattr(model.materials['default'], 'norm') and not model.materials['default'].norm.dtype.metadata['tangent']:
+                norm = normalize(model.materials['default'].norm @ ModelView[mat3x3])
+                dt = model.materials['default'].norm.dtype
+                model.materials['default'].norm = np.array(norm, dtype=dt)
                 # model.textures.world_normal_map = normalize(model.textures.world_normal_map @ self.camera.rotate[XYZ])
 
             rendered_faces = 0

@@ -168,12 +168,12 @@ def opengl_orthographicLH(fov, aspect_ratio, z_near, z_far):
     top = half_height
 
     ortho_matrix = np.array([
-        [1 / right, 0, 0, 0],
-        [0, 1 / top, 0, 0],
-        [0, 0, -2 / (z_far - z_near), -(z_far + z_near) / (z_far - z_near)],
-        [0, 0, 0, 1]
+        [1 / right, 0      , 0                                  , 0],  # noqa
+        [0        , 1 / top, 0                                  , 0],  # noqa
+        [0        , 0      , -2 / (z_far - z_near)              , 0],  # noqa
+        [0        , 0      , (z_far + z_near) / (z_far - z_near), 1]  # noqa
     ], dtype=np.float32)
-    return ortho_matrix.T
+    return ortho_matrix
 
 
 def opengl_perspectiveLH(fovy, aspect, z_near, z_far):
@@ -182,10 +182,7 @@ def opengl_perspectiveLH(fovy, aspect, z_near, z_far):
     perspective_matrix[0, 0] = f / aspect
     perspective_matrix[1, 1] = f
     perspective_matrix[2, 2] = -(z_far + z_near) / (z_far - z_near)  # sign
-    # perspective_matrix[2, 2] = (z_far + z_near) / (z_near - z_far)  # sign
     perspective_matrix[3, 2] = 2.0 * z_far * z_near / (z_far - z_near)
-    # perspective_matrix[3, 2] = (2.0 * z_far * z_near) / (z_near - z_far)
-    # perspective_matrix[2, 3] = 1.0
     perspective_matrix[2, 3] = 1.0
     return perspective_matrix
 
@@ -223,8 +220,8 @@ def directx_perspectiveLH(fovy, aspect, z_near, z_far):
     perspective_matrix = np.zeros((4, 4))
     perspective_matrix[0, 0] = f / aspect
     perspective_matrix[1, 1] = f
-    perspective_matrix[2, 2] = z_far / (z_far - z_near)  # sign
-    perspective_matrix[3, 2] = -z_near * z_far / (z_far - z_near)
+    perspective_matrix[2, 2] = -z_far / (z_far - z_near)  # sign
+    perspective_matrix[3, 2] = z_near * z_far / (z_far - z_near)
     perspective_matrix[2, 3] = 1.0
     return perspective_matrix
 
