@@ -2,7 +2,7 @@ import numpy as np
 
 from obj.constants import W_COL, XYZ, Z, W
 from obj.triangular import bresenham_line
-
+from plane_intersection import line_plane_intersection, extract_frustum_planes
 
 def get_view_frustum():
     r"""
@@ -47,16 +47,19 @@ def split_triangle_lines(tri):
         yield start, end
 
 
-def draw_view_frustum(frame, camera, debug_camera, z_buffer, sign):
-    cube_frustum = get_view_frustum() @ np.linalg.inv(debug_camera.lookat @ debug_camera.projection) @ camera.lookat @ camera.projection
+def draw_view_frustum(frame, camera, positioned_object, z_buffer, sign):
+    cube_frustum = get_view_frustum() @ np.linalg.inv(positioned_object.lookat @ positioned_object.projection) @ camera.lookat @ camera.projection
     cube_frustum /= cube_frustum[W_COL]
     cube_frustum = cube_frustum @ camera.viewport
+    planes = extract_frustum_planes(camera.lookat @ camera.projection)
 
     # for triangle in cube_frustum[faces]:
     for start, end in cube_frustum[edges]:
+        for plane in planes:
+            print(line_plane_intersection(start, end, plane))
         # for start, end in split_triangle_lines(triangle):
         for yy, xx, zz in bresenham_line(start[XYZ], end[XYZ], camera.resolution):
-            for i in range(3):
+            for i in [-1, 0, 1]:
                 xx = max(0, min(frame.shape[0] - 3, int(xx)))
                 yy = max(0, min(frame.shape[1] - 3, int(yy)))
 

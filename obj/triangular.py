@@ -12,16 +12,6 @@ class Errors:
     CLIPPED = 1 << 4
 
 
-# def bresenham_line(start_point, end_point):
-#     delta = end_point - start_point
-#     steps = max(abs(delta)) + 1
-#     if steps == 1:
-#         yield start_point
-#         return
-#     step_size = delta / steps
-#     for i in range(steps):
-#         yield (start_point + i * step_size)
-
 def bresenham_line(start_point, end_point, bound):
 
     delta = end_point - start_point
@@ -86,6 +76,7 @@ def wu_antialiased_line(start_point, end_point):
         intensity = fpart(point[1])
         yield (x, y, z, intensity)
 
+
 def wu_antialiased_line_with_thickness(start_point, end_point, thickness=1):
     def ipart(x):
         return int(x)
@@ -116,80 +107,10 @@ def wu_antialiased_line_with_thickness(start_point, end_point, thickness=1):
             yield (x, y, z, intensity)
 
 
-
-
-def DDA(x0, y0, x1, y1):
-    # find absolute differences
-    dx = abs(x0 - x1)
-    dy = abs(y0 - y1)
-
-    # find maximum difference
-    steps = max(dx, dy)
-
-    # calculate the increment in x and y
-    xinc = dx / steps
-    yinc = dy / steps
-
-    # start with 1st point
-    x = float(x0)
-    y = float(y0)
-    for i in range(steps):
-        # append the x,y coordinates in respective list
-        yield int(x), int(y)
-
-        # increment the values
-        x = x + xinc
-        y = y + yinc
-
-
-def midPoint(x0, y0, x1, y1):
-    dx = x1 - x0
-    dy = y1 - y0
-    d = dy - (dx / 2)
-    x = x0
-    y = y0
-    while x < x1:
-        x = x + 1
-        if d < 0:
-            d = d + dy
-        else:
-            d = d + (dy - dx)
-            y = y + 1
-        yield x, y
-
-
 def triangle(p):
     length = len(p)
     for i in range(length):
         yield p[i], p[i - length + 1]
-
-
-def raster_triangle(t0, t1, t2, image, color, zbuffer):
-    if t0.y == t1.y and t0.y == t2.y:
-        return
-    # width = image.shape[1]
-    # height =image.shape[0]
-    t0, t1, t2 = sorted([t0, t1, t2], key=lambda p: p.y)
-    total_height = t2.y - t0.y
-    for i in range(int(total_height)):
-        second_half = i > t1.y - t0.y or t1.y == t0.y
-        segment_height = t2.y - t1.y + 1 if second_half else t1.y - t0.y
-        alpha = i / total_height
-        beta = (i - (t1.y - t0.y if second_half else 0)) / segment_height
-        A = t0 + (t2 - t0 + 1) * alpha
-        B = t1 + (t2 - t1 + 1) * beta if second_half else t0 + (t1 - t0 + 1) * beta
-        if A.x > B.x:
-            A, B = B, A
-        for j in range(int(A.x), int(B.x) + 1, 1):
-            phi = 1 if B.x == A.x else (j - A.x) / (B.x - A.x)
-            P = A + (B - A) * phi
-            try:
-                # if P.x<width and P.x>0 and P.y <height and P.y>0:
-                if zbuffer[int(P.x), int(P.y)] > P.z:
-                    zbuffer[int(P.x), int(P.y)] = P.z
-                    image[int(P.x), int(P.y)] = color
-            except Exception:
-                pass
 
 
 def make_triangles(p):
@@ -289,13 +210,14 @@ def rasterize(face, frame, z_buffer, light, camera):
     bar_screen = bar_screen[Zi]
     x, y, z = x[Zi], y[Zi], z[Zi]
 
-    z_buffer[x, y] = z
+    if face.model.depth_test:
+        z_buffer[x, y] = z
 
     # Points
     # points_only(face, camera, image)
 
     # Wireframe render
-    # wireframe_shading(face, camera, image)
+    # wireframe_shading(face, camera, frame, z_buffer)
 
     #  General shading
     general_shading(face, bar_screen, light, camera, frame, x, y)
@@ -306,17 +228,25 @@ def rasterize(face, frame, z_buffer, light, camera):
 
     return 0
 
+def smoothstep(edge0, edge1, x_array):
+    '''
+                  limits in
+     degrees | radians | dot space
+     --------+---------+----------
+        0    |   0.0   |    1.0
+        22   |    .38  |     .93
+        45   |    .79  |     .71
+        67   |   1.17  |     .39
+        90   |   1.57  |    0.0
+       180   |   3.14  |   -1.0
+    '''
+    # Scale, and clamp x_array to 0-1 range element-wise
+    x_array = np.clip((x_array - edge0) / (edge1 - edge0), 0.0, 1.0)
+    # Evaluate polynomial element-wise
+    return x_array * x_array * (3 - 2 * x_array)
 
 def general_shading(face, bar, light, camera, frame, x, y):
-    """Tested"""
-    specular_strength = 2  # Brightness
-    # height, width, _ = frame.shape
-    ############################
-    # face.material.Ka
-    ##############################
-
     blinn = True
-    # blinn = False
 
     shininess_factor = face.get_specular(bar)
 
@@ -326,28 +256,24 @@ def general_shading(face, bar, light, camera, frame, x, y):
 
     norm = face.get_normals(bar)
 
-    def reflect(I, N):
-        return normalize(I - 2. * (N * I).sum(axis=1)[add_dim] * N)
-
     fragment_position = bar @ face.view_vertices[XYZ]
 
-    if face.normals is None:
-        light_dir = normalize(light.position).squeeze()
-    else:
-        light_dir = normalize(light.position - fragment_position)
-        # light_dir = normalize(fragment_position - light.position)
+    light_dir = normalize(light.position - fragment_position)
 
     view_dir = normalize(camera.position - fragment_position)
+
+    # inLight = smoothstep(np.cos(5), np.cos(2), (light.position * -light_dir).sum(axis=1))
+    # shininess_factor *= inLight
 
     if blinn:
         halfway_dir = normalize(light_dir + view_dir)
         spec = (norm * halfway_dir).sum(axis=1).clip(0)[add_dim] ** shininess_factor
 
     else:
-        reflect_dir = reflect(-light_dir, norm)
+        reflect_dir = light.reflect(-light_dir, norm)
         spec = (view_dir * reflect_dir).sum(axis=1).clip(0)[add_dim] ** shininess_factor
 
-    specular = specular_strength * spec * face.material.Ns
+    specular = light.specular * spec * face.material.Ns
     diff = (norm * light_dir).sum(axis=1)[add_dim]
     diffuse = diff * light.color
 
@@ -376,7 +302,7 @@ def general_shading(face, bar, light, camera, frame, x, y):
     #     diffuse[shadow] *= 0.3
     #     specular[shadow] = 0
 
-    frame[x, y] = ((light.ambient * attenuation + diffuse * attenuation + specular * attenuation) * object_color ** 1.7).clip(0.05, 1) * 255
+    frame[x, y] = ((light.ambient * attenuation + diffuse * attenuation + specular * attenuation) * object_color ** 2.2).clip(0.05, 1) * 255
 
 
 def flat_shading(face, light, frame, x, y):
@@ -473,18 +399,17 @@ def pbr(face, light, camera, frame, bar, x, y):
     frame[x, y] = (color * 255).astype(np.uint8)
 
 
-def wireframe_shading(face, camera, image):
-    if face.unit_normal @ -normalize(camera.position)[0] <= 0:
+def wireframe_shading(face, camera, frame, z_buffer):
+    if face.unit_normal[2] < 0:
         return Errors.BACK_FACE_CULLING
     for p1, p2 in make_triangles(face.vertices.astype(np.int32)):
-        for xx, yy in line(p1[0], p1[1], p2[0], p2[1]):
-            # for xx, yy in bresenham(p1[0], p1[1], p2[0], p2[1]):
-            # for xx, yy in midPoint(p1[0], p1[1], p2[0], p2[1]):
-            # for xx, yy in DDA(p1[0], p1[1], p2[0], p2[1]):
+        for yy, xx, zz in bresenham_line(p1[XYZ], p2[XYZ], camera.resolution):
 
-            xx = max(0, min(image.shape[0] - 1, xx))
-            yy = max(0, min(image.shape[1] - 1, yy))
-            image[yy, xx] = [128, 128, 0]
+            xx = max(0, min(frame.shape[0] - 1, int(xx)))
+            yy = max(0, min(frame.shape[1] - 1, int(yy)))
+            if (z_buffer[xx, yy] - 1 / zz) > 0:
+                frame[xx, yy] = (64, 64, 128)
+                z_buffer[xx, yy] = zz
 
 
 def points_only(face, camera, image):

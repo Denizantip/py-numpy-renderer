@@ -2,8 +2,9 @@ import time
 from tkinter import Tk, Canvas, NW
 import numpy as np
 from PIL import ImageTk, Image
-from core import Camera, Light, Scene, Model, triangulate_int
+from core import Camera, Light, Model, Scene
 from obj.constants import PROJECTION_TYPE
+from obj.cube_map import CubeMap
 from transformation import scale, SYSTEM, SUBSYSTEM, translation
 
 if __name__ == "__main__":
@@ -16,8 +17,6 @@ if __name__ == "__main__":
     katana = katana @ scale(0.1)
     # minicooper = Model.load_model('minicooper.obj')
     cube = Model.load_model('obj_loader_test/cube.obj', shadowing=False)
-    cube_map = Model.load_model('floor.obj', shadowing=False)
-
     diablo = Model.load_model("diablo3_pose/diablo3_pose.obj")
     # deer = Model.load_model("deer.obj")
     floor = Model.load_model("floor.obj")
@@ -34,60 +33,73 @@ if __name__ == "__main__":
     # diablo.textures.register('normals', 'diablo3_pose/diablo3_pose_nm_tangent.tga', tangent=True)
     # diablo.textures.register('normals', 'diablo3_pose/diablo3_pose_nm.tga')
     # diablo.textures.register("specular", 'diablo3_pose/diablo3_pose_spec.tga', normalize=False)
-    diablo.textures.register("diffuse", 'diablo3_pose/diablo3_pose_diffuse.tga', normalize=False)
+    # diablo.textures.register("diffuse", 'diablo3_pose/diablo3_pose_diffuse.tga', normalize=False)
     # diablo.textures.register("diffuse", 'grid.tga', normalize=False)
     # diablo.textures.register("glow", 'diablo3_pose/diablo3_pose_glow.tga', normalize=False)
 
     # floor.vertices = floor.vertices @ scale(2)
-    light = Light((1., 0., 1.8), color=(1, 1, 1),
-                  show=False
+    light = Light((0, 0, 2), color=(1, 1, 1),
+                  show=True,
+                  fovy=45,
+                  ambient_strength=0
                   )
-    # cube = cube @ translation((-0.5, 1, 2.5))
-    # diablo = diablo @ translation((0, -0.1, 0))
-    # minicooper = minicooper @ rotate((0, -90, 0))
-    # cube.normals *= -1
 
-    camera = Camera((1, 2, 3), up=np.array((0, 1, 0)),
+    # cube_map = Model.load_model('floor.obj', shadowing=False)
+    camera = Camera((2, 0, 2), up=np.array((0, 1, 0)),
                     show=False,
-                    fovy=60,
-                    near=0.5,
-                    far=5,
-                    backface_culling=True,
-                    resolution=(1500, 1500),
+                    fovy=90,
+                    near=0.1,
+                    far=10,
+                    backface_culling=False,
+                    resolution=(2000, 1500),
                     projection_type=PROJECTION_TYPE.PERSPECTIVE,
                     center=(0, 0, 0)
                     )
 
-    camera2 = Camera((2, 0, -2), up=np.array((0, 1, 0)),
+    camera2 = Camera((2, 3, -2), up=np.array((0, 1, 0)),
                      show=False,
-                     fovy=60,
-                     near=.00005,
-                     far=4,
-                     backface_culling=True,
+                     fovy=120,
+                     near=0.1,
+                     far=2,
+                     backface_culling=False,
                      x_offset=1500,
                      resolution=(1500, 1500),
-                     center=(0, 0, 0),
+                     center=(2, 0, 1),
                      projection_type=PROJECTION_TYPE.PERSPECTIVE,
                      )
+    cube_map = CubeMap(back="skybox/back.jpg",
+                       bottom="skybox/bottom.jpg",
+                       front="skybox/front.jpg",
+                       left="skybox/left.jpg",
+                       right="skybox/right.jpg",
+                       top="skybox/top.jpg")
+
+    skymap = CubeMap(back="cubemap/neg-z.jpg",
+                     front="cubemap/pos-z.jpg",
+                     top="cubemap/pos-y.jpg",
+                     bottom="cubemap/neg-y.jpg",
+                     left="cubemap/neg-x.jpg",
+                     right="cubemap/pos-x.jpg")
+
+    cube_map_debug = CubeMap(back="cubemap_debug/back.png",
+                             front="cubemap_debug/front.png",
+                             top="cubemap_debug/top.png",
+                             bottom="cubemap_debug/bottom.png",
+                             left="cubemap_debug/left.png",
+                             right="cubemap_debug/right.png")
 
     height, width = (1500, 2000)
     scene = Scene(camera,
                   light,
                   debug_camera=camera2,
+                  # skymap=cube_map_debug,
+                  # skymap=cube_map,
+                  skymap=None,
                   resolution=(height, width),
-                  system=SYSTEM.LH,
-                  subsystem=SUBSYSTEM.OPENGL,)
+                  system=SYSTEM.RH,
+                  subsystem=SUBSYSTEM.DIRECTX)
     scene.add_model(floor)
     scene.add_model(diablo)
-
-    # cube_map = cube_map @ translation((0, 1, 0))
-    # cube_map = cube_map @ rotate((0, 90, 0))
-    # view = camera2.lookat
-    # # view[:3, 3]= 0
-    # view[3, :3]= 0
-    # MVP = np.linalg.inv(view @ camera2.projection)
-    # cube_map = cube_map @ MVP
-    # cube_map.vertices /= cube_map.vertices[:, [3]]
 
     # scene.add_model(cube_map)
     # scene.add_model(minicooper)

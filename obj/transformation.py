@@ -112,8 +112,8 @@ def look_at_rotate_lh(eye, center, up):
 
 
 def look_at_rotate_rh(eye, center, up):
-    forward = normalize(center - eye).squeeze()
-    right = normalize(np.cross(up, forward)).squeeze()
+    forward = normalize(center - eye).ravel()
+    right = normalize(np.cross(up, forward)).ravel()
     new_up = np.cross(forward, right)
     rot = np.eye(4)
     rot[mat3x3] = np.column_stack((right, new_up, forward))
@@ -148,14 +148,14 @@ def ViewPort(resolution, far, near, x_offset=0, y_offset=0):
     depth = far - near
     m = np.array(
         [
-            [width / 2,           0,                          0,  width / 2 + x_offset],  # noqa
-            [        0,  height / 2,                          0, height / 2 + y_offset],  # noqa
-            [        0,           0,                    depth/2,              depth/2 ],  # noqa
+            [width / 2           ,           0         ,       0, 0],  # noqa
+            [        0           ,  height / 2         ,       0, 0],  # noqa
+            [        0           ,           0         , depth/2, 0 ],  # noqa
             # [        0,           0,                          1,                          0],  # noqa
-            [        0,           0,                          0,                     1],  # noqa
+            [width / 2 + x_offset, height / 2 + y_offset, depth/2, 1],  # noqa
         ]
     )
-    return m.T
+    return m
 
 
 def opengl_orthographicLH(fov, aspect_ratio, z_near, z_far):

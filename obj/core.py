@@ -1,13 +1,13 @@
 import os.path
 
-from functools import cache
 from typing import Iterator, Optional, List
 from os import PathLike
 from PIL import Image
 
 from obj.axes import draw_axis
-from obj.cube_map import CubeMap
+from obj.cube_map import CubeMap, fill_frame_from_skybox
 from obj.frustums import draw_view_frustum
+
 from obj.materials import Material
 from obj.plane_intersection import *
 from obj.transformation import ViewPort, perspectives, scale, looka_at_translate, look_at_rotate_lh, look_at_rotate_rh
@@ -115,7 +115,7 @@ class TextureMaps:
 class Face:
     def __init__(
         self, instance, Vi: NDArray, Ti: Optional[NDArray]=None, Ni: Optional[NDArray]=None,
-            material: Optional[NDArray]=None,
+            material: Optional[NDArray]='default',
     ):  # noqa
         self._vi = Vi
         self._ti = Ti
@@ -131,7 +131,7 @@ class Face:
         self.uv = instance.uv[Ti] if instance.uv is not None else None
         self.normals = instance.normals[Ni] if instance.normals is not None else None
         self.textures = instance.textures
-        self.material = instance.materials.get(instance.material_group[material[0]], instance.materials['default'])
+        self.material = instance.materials.get(instance.material_group[0], instance.materials['default'])
 
     @property
     def unit_normal(self) -> NDArray:
@@ -168,8 +168,8 @@ class Face:
         return shininess_factor
 
     def screen_perspective(self, bar_screen):
-        w_coord = bar_screen @ self.vertices[W]
-        perspective = bar_screen * self.vertices[W] / w_coord[add_dim]
+        w_coord = bar_screen @ self.vertices[W_COL]
+        perspective = bar_screen * self.vertices[W] / w_coord
         perspective = perspective[(perspective >= 0).all(axis=1)]
 
         if perspective.size:
@@ -242,20 +242,22 @@ class Face:
 
 class Model:
     def __init__(self,
-                 vertices: NDArray, uv: NDArray | None, normals: NDArray, faces: NDArray,
+                 vertices: NDArray, uv: NDArray | None, normals: NDArray | None, faces: NDArray,
                  shadowing: bool = False, materials: dict = None, material_group: list = None, clip=True,
+                 depth_test=True
     ):
         self.vertices = vertices
         self.view_tri = np.empty_like(vertices)
         self.shadow_vertices = np.empty_like(vertices)
         self.clip = clip
+        self.depth_test = depth_test
 
         self.shadowing = shadowing
         self.uv = uv
         self.normals = normals
         self._faces = faces
-        self.materials = materials
-        self.material_group = material_group
+        self.materials = materials or {'default': Material()}
+        self.material_group = material_group or ['default']
         self.textures = TextureMaps(self)
         self.shape = None
 
@@ -296,7 +298,7 @@ class Model:
                         temp = []
                         for idx in face.split("/"):
                             if idx == '':
-                                temp.append(0)
+                                temp.append(-1)
                             else:
                                 temp.append(idx)
                         temp.append(mtl_group.index(mtl) + 1)
@@ -382,7 +384,7 @@ class ProjectionMixin:
                  up=np.array([0, 1, 0]),
                  near=0.001,
                  center=np.array([0, 0, 0]),
-                 far=10,
+                 far=4,
                  fovy=90):
         self.up = up
         self.center = np.array(center)
@@ -411,13 +413,18 @@ class ProjectionMixin:
             return look_at_rotate_rh(self.position, self.center, self.up)
 
     @property
+    def translate(self):
+        return looka_at_translate(self.position)
+
+    @property
     def lookat(self):
         if self.scene.system == SYSTEM.LH:
             return looka_at_translate(self.position) @ look_at_rotate_lh(self.center, self.position, self.up)
+            # return look_at_rotate_lh(self.center, self.position, self.up) @ looka_at_translate(self.position)
             # return look_at(self.position, self.center, self.up)
         elif self.scene.system == SYSTEM.RH:
-            # return looka_at_translate(self.position) @ look_at_rotate_rh(self.center, self.position, self.up)
             return looka_at_translate(self.position) @ look_at_rotate_rh(self.center, self.position, self.up)
+            # return look_at_rotate_rh(self.center, self.position, self.up) @ looka_at_translate(self.position)
 
     @property
     def viewport(self):
@@ -458,7 +465,7 @@ class Light(PositionedObject, ProjectionMixin):
                  quadratic=0.07,
                  **kwargs
                  ):
-        self.color = color if isinstance(color, np.ndarray) else np.array(color)
+        self.color = np.array(color)
         super(Light, self).__init__(np.array(position))
         self.ambient = ambient_strength * self.color
         self.show = show
@@ -491,7 +498,9 @@ class Light(PositionedObject, ProjectionMixin):
         # attenuation = 1.0 / (self.constant + self.linear * distance +
         #                       self.quadratic * (distance ** 2))
         super(PositionedObject, self).__init__(**kwargs)
-
+    @staticmethod
+    def reflect(I, N):
+        return normalize(I - 2. * (N * I).sum(axis=1)[add_dim] * N)
 
 class Bound:
     def __set__(self, instance: 'Scene', value: Camera | Light):
@@ -509,7 +518,7 @@ class Bound:
         elif isinstance(value, Camera) and value.show:
             sub_model = Model.load_model('obj_loader_test/camera.obj', shadowing=False)
             sub_model.clip = False
-            sub_model = sub_model @ scale(0.05)
+            sub_model = sub_model @ scale(0.1)
             sub_model = sub_model @ np.linalg.inv(value.lookat)
             sub_model.normals = sub_model.normals @ np.linalg.inv(value.lookat[mat3x3])
             instance.add_model(sub_model)
@@ -531,7 +540,7 @@ class Scene:
             resolution=(1500, 1500),
             system=SYSTEM.RH,
             subsystem=SUBSYSTEM.DIRECTX,
-            cubemap=None
+            skymap=None
     ):
         self.system: SYSTEM = system
         self.subsystem: SUBSYSTEM = subsystem
@@ -540,13 +549,13 @@ class Scene:
         self.light: Light = light
         self.debug_camera: Camera | None = debug_camera
         self.resolution = resolution
-        self.cubemap: CubeMap = cubemap
+        self.skymap: 'CubeMap' = skymap
 
     def add_model(self, model: Model):
         self.models.append(model)
 
     def render(self):
-        frame = np.zeros((*self.resolution, 3), dtype=np.uint8)
+        frame = np.empty((*self.resolution, 3), dtype=np.uint8)
         z_buffer = np.full(self.resolution, np.inf if self.system == SYSTEM.RH else -np.inf, dtype=np.float32)
 
         # shadow_z_buffer = np.full((height, width), -np.inf)
@@ -554,15 +563,14 @@ class Scene:
         # ShadowProjection = self.light.projection
 
         ModelView = self.camera.lookat
-        Projection = self.camera.projection
-        Viewport = self.camera.viewport
-        MVP = ModelView @ Projection
+        MVP = ModelView @ self.camera.projection
+        mvp_planes = extract_frustum_planes(MVP)
 
-        ModelView2 = self.debug_camera.lookat
-        Projection2 = self.debug_camera.projection
+        if self.skymap is not None:
+            fill_frame_from_skybox(frame, self.camera, self.skymap)
+        else:
+            frame[:] = [127, 127, 127]
 
-        MVP2 = ModelView2 @ Projection2
-        mvp_planes = extract_frustum_planes(MVP2)
         self.light.set_position((np.append(self.light.position, 1) @ ModelView)[XYZ])
         # self.light.set_position((np.append(self.light.position, 1) @ self.camera.rotate)[XYZ])
 
@@ -591,7 +599,7 @@ class Scene:
                 norm = normalize(model.materials['default'].norm @ ModelView[mat3x3])
                 dt = model.materials['default'].norm.dtype
                 model.materials['default'].norm = np.array(norm, dtype=dt)
-                # model.textures.world_normal_map = normalize(model.textures.world_normal_map @ self.camera.rotate[XYZ])
+
 
             rendered_faces = 0
             errors = [0, 0, 0, 0, 0]
@@ -607,16 +615,16 @@ class Scene:
 
                     if len(polygon_vertices):
                         # edges = len(polygon_vertices)
-                        # color = [255,255,255]
+                        # color = [255, 255, 255]
                         # for idx in range(edges):
                         #     current = polygon_vertices[idx] @ MVP
                         #     prev = polygon_vertices[(idx + 1) % edges] @ MVP
                         #
-                        #     current = ((current / current[3]) @ Viewport).astype(int)
+                        #     current = ((current / current[3]) @ self.camera.viewport).astype(int)
                         #
-                        #     prev = ((prev / prev[3]) @ Viewport).astype(int)
+                        #     prev = ((prev / prev[3]) @ self.camera.viewport).astype(int)
                         #
-                        #     for yy, xx, zz, _ in bresenham_line(prev, current):
+                        #     for yy, xx, zz, _ in bresenham_line(prev, current, self.debug_camera.resolution):
                         #
                         #         xx = max(0, min(frame.shape[0] - 3, int(xx)))
                         #         yy = max(0, min(frame.shape[1] - 3, int(yy)))
@@ -654,7 +662,7 @@ class Scene:
             print('Face rendered', rendered_faces)
             print('CLipped', errors)
 
-        draw_view_frustum(frame, self.camera, self.debug_camera, z_buffer, 1 if self.system == SYSTEM.LH else -1)
-        frame = draw_axis(frame, self.camera)
+        # draw_view_frustum(frame, self.camera, self.light, z_buffer, 1 if self.system == SYSTEM.LH else -1)
+        # frame = draw_axis(frame, self.camera, z_buffer, 1 if self.system == SYSTEM.LH else -1)
 
         return frame[::-1]
