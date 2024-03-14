@@ -19,32 +19,39 @@ class CubeMap:
               │  up   │
               └───────┘
     """
-    def __init__(self, left, right, top, bottom, front, back):
-        self.textures = np.array([
-            np.flip(self.load_texture(right), axis=[0, 1]),
-            np.rot90(self.load_texture(left).transpose((1, 0, 2)), -1),
+    def __init__(self, left, right, top, bottom, front, back,
+                 normalize_input=True):
+        if normalize_input:
+            self.textures = np.array([
+                np.flip(self.load_texture(right), axis=[0, 1]),
+                np.rot90(self.load_texture(left).transpose((1, 0, 2)), -1),
 
-            self.load_texture(top).transpose((1, 0, 2)),
-            np.rot90(self.load_texture(bottom)),
+                self.load_texture(top).transpose((1, 0, 2)),
+                np.rot90(self.load_texture(bottom)),
 
-            np.rot90(self.load_texture(front), -1),
-            self.load_texture(back).transpose((1, 0, 2)),
-
+                np.rot90(self.load_texture(front), -1),
+                self.load_texture(back).transpose((1, 0, 2))
+                ])
+        else:
+            self.textures = np.array([
+                self.load_texture(right),
+                self.load_texture(left),
+                self.load_texture(top),
+                self.load_texture(bottom),
+                self.load_texture(front),
+                self.load_texture(back)
             ])
 
         self.faces = [
             np.array([
                 [-1, 1, 1, 1],
                 [1, 1, 1, 1],
-                [-1, -1, 1, 1]
-                ]
-                ),
+                [-1, -1, 1, 1]]),
             np.array([
                 [1, 1, 1, 1],
                 [1, -1, 1, 1],
-                [-1, -1, 1, 1]
-            ]
-            )]
+                [-1, -1, 1, 1]])
+        ]
 
     @staticmethod
     def load_texture(name):

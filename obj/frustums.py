@@ -2,7 +2,8 @@ import numpy as np
 
 from obj.constants import W_COL, XYZ, Z, W
 from obj.triangular import bresenham_line
-from plane_intersection import line_plane_intersection, extract_frustum_planes
+from plane_intersection import line_plane_intersection, extract_frustum_planes, is_visible
+
 
 def get_view_frustum():
     r"""
@@ -48,22 +49,28 @@ def split_triangle_lines(tri):
 
 
 def draw_view_frustum(frame, camera, positioned_object, z_buffer, sign):
-    cube_frustum = get_view_frustum() @ np.linalg.inv(positioned_object.lookat @ positioned_object.projection) @ camera.lookat @ camera.projection
+    cube_frustum = get_view_frustum() @ np.linalg.inv(positioned_object.MVP) @ camera.MVP
     cube_frustum /= cube_frustum[W_COL]
     cube_frustum = cube_frustum @ camera.viewport
-    planes = extract_frustum_planes(camera.lookat @ camera.projection)
 
-    # for triangle in cube_frustum[faces]:
+    # planes = extract_frustum_planes(camera.MVP)
+    #
     for start, end in cube_frustum[edges]:
-        for plane in planes:
-            print(line_plane_intersection(start, end, plane))
-        # for start, end in split_triangle_lines(triangle):
+    #     for plane in planes:
+    #         current_point_visible = is_visible(start, plane)
+    #         next_point_visible = is_visible(end, plane)
+    #         intersection_point = line_plane_intersection(start, end, plane)
+    #         if intersection_point is not None:
+    #             if current_point_visible:
+    #                 start = intersection_point
+    #             if next_point_visible:
+    #                 end = intersection_point
+
         for yy, xx, zz in bresenham_line(start[XYZ], end[XYZ], camera.resolution):
             for i in [-1, 0, 1]:
                 xx = max(0, min(frame.shape[0] - 3, int(xx)))
                 yy = max(0, min(frame.shape[1] - 3, int(yy)))
 
-                # if z_buffer[xx + i, yy + i] > 1 / zz:
                 if (z_buffer[xx + i, yy + i] - 1 / zz) * sign < 0:
                     frame[xx + i, yy + i] = (64, 64, 128)
                     z_buffer[xx + i, yy + i] = zz

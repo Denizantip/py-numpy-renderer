@@ -9,13 +9,10 @@ class ValueRange:
     hi: float
 
 
-# def normalize(vec) -> NDArray:
-#     norm = np.linalg.norm(vec)
-#     if norm == 0:
-#         vec = np.array((0, 0, 0))
-#         return vec
-#     return vec / norm
 def barycentric(a, b, c, p):
+    """
+    https://ceng2.ktu.edu.tr/~cakir/files/grafikler/Texture_Mapping.pdf
+    """
     v0 = b - a
     v1 = c - a
     v2 = p - a
@@ -120,7 +117,6 @@ def look_at_rotate_rh(eye, center, up):
     return rot
 
 
-
 def lookAtRH(eye, center, up=np.array([0, 1, 0])):
     # forward = normalize(eye - center).squeeze()
     forward = normalize(center - eye).squeeze()
@@ -148,11 +144,11 @@ def ViewPort(resolution, far, near, x_offset=0, y_offset=0):
     depth = far - near
     m = np.array(
         [
-            [width / 2           ,           0         ,       0, 0],  # noqa
-            [        0           ,  height / 2         ,       0, 0],  # noqa
-            [        0           ,           0         , depth/2, 0 ],  # noqa
+            [           width / 2,                     0,         0, 0],  # noqa
+            [                   0,            height / 2,         0, 0],  # noqa
+            [                   0,                     0, depth / 2, 0],  # noqa
             # [        0,           0,                          1,                          0],  # noqa
-            [width / 2 + x_offset, height / 2 + y_offset, depth/2, 1],  # noqa
+            [width / 2 + x_offset, height / 2 + y_offset, depth / 2, 1],  # noqa
         ]
     )
     return m
@@ -193,7 +189,9 @@ def opengl_perspectiveRH(fovy, aspect, z_near, z_far):
     perspective_matrix[0, 0] = f / aspect
     perspective_matrix[1, 1] = f
     perspective_matrix[2, 2] = -(z_far + z_near) / (z_far - z_near)
+    # perspective_matrix[2, 2] = -1
     perspective_matrix[3, 2] = -2.0 * z_far * z_near / (z_far - z_near)
+    # perspective_matrix[3, 2] = -2.0 * z_near
     perspective_matrix[2, 3] = -1.0
     return perspective_matrix
 
@@ -316,6 +314,57 @@ def FPSViewRH(
 
     return viewMatrix
 
+
+def perspective_matrix_3point(d, aspect_ratio, fov_y, angles):
+    f = 1.0 / np.tan(fov_y / 2.0)
+
+    perspective_matrix = np.array([
+        [f / aspect_ratio, 0, 0, 0],
+        [0, f, 0, 0],
+        [0, 0, (d[1] + d[0]) / (d[1] - d[0]), -2 * d[0] * d[1] / (d[1] - d[0])],
+        [0, 0, 1, 0]
+    ])
+
+    rotation_matrix = np.array([
+        [np.cos(angles[0]), -np.sin(angles[0]), 0, 0],
+        [np.sin(angles[0]), np.cos(angles[0]), 0, 0],
+        [0, 0, 1, 0],
+        [0, 0, 0, 1]
+    ])
+
+    return np.dot(np.dot(rotation_matrix, perspective_matrix), np.linalg.inv(rotation_matrix))
+
+
+def perspective_matrix_2point(d, aspect_ratio, fov_y, eye_sep):
+    f = 1.0 / np.tan(fov_y / 2.0)
+    perspective_matrix = np.array([
+        [f / aspect_ratio, 0, 0, 0],
+        [0, f, 0, 0],
+        [0, 0, (d[1] + d[0]) / (d[1] - d[0]), -2 * d[0] * d[1] / (d[1] - d[0])],
+        [0, 0, 1, 0]
+    ])
+
+    translation_matrix = np.array([
+        [1, 0, -eye_sep / 2, 0],
+        [0, 1, 0, 0],
+        [0, 0, 1, 0],
+        [0, 0, 0, 1]
+    ])
+
+    return np.dot(perspective_matrix, translation_matrix)
+
+
+# Example usage:
+depth_range = [1, 100]
+aspect_ratio = 16 / 9
+fov_y = np.radians(45)
+eye_separation = 0.1
+
+matrix_2point = perspective_matrix_2point(depth_range, aspect_ratio, fov_y, eye_separation)
+
+# Example usage:
+angles = [np.radians(30), np.radians(45)]
+matrix_3point = perspective_matrix_3point(depth_range, aspect_ratio, fov_y, angles)
 
 perspectives = {
     SUBSYSTEM.DIRECTX: {

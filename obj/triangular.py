@@ -1,4 +1,5 @@
 from obj.constants import *
+from obj.lightning import Lightning
 from transformation import bound_box, barycentric, normalize
 
 import numpy as np
@@ -29,84 +30,6 @@ def bresenham_line(start_point, end_point, bound):
         yield interpolated_point
 
 
-def bresenham_line_with_thickness(start_point, end_point, thickness=1):
-    delta = end_point - start_point
-    steps = max(abs(delta)) + 1
-
-    if steps == 1:
-        yield start_point.astype(int)
-        return
-
-    step_size = delta / steps
-
-    for t in range(-thickness // 2, thickness // 2 + 1):
-        normal = np.array([-step_size[1], step_size[0]]) if delta[0] == 0 else np.array([0, 0])
-        offset = t * normal
-
-        for i in range(steps):
-            yield (start_point + i * step_size + offset).astype(int)
-
-
-def wu_antialiased_line(start_point, end_point):
-    def ipart(x):
-        return int(x)
-
-    def fpart(x):
-        return x - ipart(x)
-
-    start_point = np.array(start_point)
-    end_point = np.array(end_point)
-
-    delta = end_point - start_point
-    steps = max(abs(delta)) + 1
-
-    # if steps == 1:
-    #     yield start_point.astype(int)
-    #     return
-
-    step_size = delta / steps
-
-    for i in range(steps):
-        point = start_point + i * step_size
-        x, y, z = map(int, point)
-        intensity = 1 - fpart(point[1])
-        yield (x, y, z, intensity)
-
-        x, y, z = map(int, point + step_size)
-        intensity = fpart(point[1])
-        yield (x, y, z, intensity)
-
-
-def wu_antialiased_line_with_thickness(start_point, end_point, thickness=1):
-    def ipart(x):
-        return int(x)
-
-    def fpart(x):
-        return x - ipart(x)
-
-    start_point = np.array(start_point)
-    end_point = np.array(end_point)
-
-    delta = end_point - start_point
-    steps = max(abs(delta)) + 1
-
-    if steps == 1:
-        yield tuple(start_point.astype(int))
-        return
-
-    step_size = delta / steps
-    normal = np.array([-step_size[1], step_size[0], step_size[2]])
-
-    for i in range(steps):
-        point = start_point + i * step_size
-
-        for t in range(-thickness // 2, thickness // 2 + 1):
-            offset = t * normal
-            x, y, z = map(int, point + offset)
-            intensity = 1 - fpart(point[0])
-            yield (x, y, z, intensity)
-
-
 def triangle(p):
     length = len(p)
     for i in range(length):
@@ -119,47 +42,23 @@ def make_triangles(p):
         yield p[i], p[i - length + 1]
 
 
-def shadow_texture(face, shadow_z_buffer, light):
-    if face.shadow_normal[2] > 0:
-        return
-
-    height, width = light.resolution
-    box = bound_box(face.shadow_vertices[XY], width, height)
-    if box is None:
-        return
-    min_x, max_x, min_y, max_y = box
-    p = np.mgrid[min_x: max_x, min_y: max_y].reshape(2, -1).T
-
-    bar_screen = barycentric(*face.shadow_vertices[XY].astype(int), p)
-    if bar_screen is None:
-        return
-
-    Bi = (bar_screen >= 0).all(axis=1)
-
-    bar_screen = bar_screen[Bi]
-    if not bar_screen.size:
-        return
-    y, x = p[Bi].T
-    z = bar_screen @ face.shadow_vertices[Z]
-
-    Zi = (shadow_z_buffer[x, y] < z)
-    if not Zi.size:
-        return
-
-    x, y, z = x[Zi], y[Zi], z[Zi]
-    shadow_z_buffer[x, y] = z
-
-
-def rasterize(face, frame, z_buffer, light, camera):
-    face.view_vertices = face.vertices @ camera.lookat
-    face.vertices = face.view_vertices @ camera.projection
-
+def rasterize(face, frame, z_buffer, light, camera, stencil_buffer):
+    """
+    Previously this conversion could be done on ALL vertices at once.
+    But the clipping by Sutherland Hodgeman became impossible. Because of absence of Fragment shader where clipping
+    performed by inequality  -W < vertex[XYZ] < W. GPU stuff.
+    For correct light computation we still need vertices in World space (or camera space. I choose world space.)
+    """
+    face.world_vertices = face.vertices.copy()
+    face.vertices = face.vertices @ camera.MVP
     depth = 1 / face.vertices[W_COL]
     face.vertices *= depth  # perspective division
     face.vertices = face.vertices @ camera.viewport
     face.vertices[W_COL] = depth
 
-    if camera.backface_culling and face.unit_normal[2] < 0:
+    # if camera.backface_culling and face.test @ camera.position < 0:
+    if camera.backface_culling and face.test[2] < 0:
+        # BTW if the vertices was in Camera space second condition Could be face.normal.Z < 0
         return Errors.BACK_FACE_CULLING
 
     height, width, _ = frame.shape
@@ -186,7 +85,7 @@ def rasterize(face, frame, z_buffer, light, camera):
     min_x, max_x, min_y, max_y = box
     p = np.mgrid[min_x: max_x, min_y: max_y].reshape(2, -1).T
 
-    bar_screen = barycentric(*face.vertices[XY].astype(np.int32), p)
+    bar_screen = barycentric(*face.vertices[XY], p)
     if bar_screen is None:
         return Errors.EMPTY_B
 
@@ -197,7 +96,6 @@ def rasterize(face, frame, z_buffer, light, camera):
         return Errors.EMPTY_B
 
     y, x = p[Bi].T
-
     z = bar_screen @ face.vertices[Z]
 
     if camera.scene.system == SYSTEM.RH:
@@ -224,90 +122,49 @@ def rasterize(face, frame, z_buffer, light, camera):
     # pbr(face, light, camera, frame, bar_screen, x, y)
     # flat_shading(face, light, frame, x, y)
     # gouraud(face, light, frame, bar_screen, x, y)
-    #
 
     return 0
 
-def smoothstep(edge0, edge1, x_array):
-    '''
-                  limits in
-     degrees | radians | dot space
-     --------+---------+----------
-        0    |   0.0   |    1.0
-        22   |    .38  |     .93
-        45   |    .79  |     .71
-        67   |   1.17  |     .39
-        90   |   1.57  |    0.0
-       180   |   3.14  |   -1.0
-    '''
-    # Scale, and clamp x_array to 0-1 range element-wise
-    x_array = np.clip((x_array - edge0) / (edge1 - edge0), 0.0, 1.0)
-    # Evaluate polynomial element-wise
-    return x_array * x_array * (3 - 2 * x_array)
 
 def general_shading(face, bar, light, camera, frame, x, y):
-    blinn = True
+    blinn = False
+    perspective_corrected_barycentric = face.screen_perspective(bar)
+    shininess_factor = face.get_specular(perspective_corrected_barycentric)
+    object_color = face.get_object_color(perspective_corrected_barycentric)
+    fragment_normals = face.get_normals(perspective_corrected_barycentric)
+    fragment_position = perspective_corrected_barycentric @ face.world_vertices[XYZ]
 
-    shininess_factor = face.get_specular(bar)
+    if light.light_type == Lightning.DIRECTIONAL_LIGHTNING:
+        surface_light_dir = light.direction[np.newaxis]
+    else:
+        surface_light_dir = normalize(light.position - fragment_position)
 
-    object_color = face.get_object_color(bar)
-    if object_color is None:
-        return
-
-    norm = face.get_normals(bar)
-
-    fragment_position = bar @ face.view_vertices[XYZ]
-
-    light_dir = normalize(light.position - fragment_position)
-
-    view_dir = normalize(camera.position - fragment_position)
-
-    # inLight = smoothstep(np.cos(5), np.cos(2), (light.position * -light_dir).sum(axis=1))
-    # shininess_factor *= inLight
+    surface_view_dir = normalize(camera.position - fragment_position)
+    if light.light_type == Lightning.SPOT_LIGHTNING:
+        inLight = light.smoothstep(np.cos(np.deg2rad(20)),
+                                   np.cos(np.deg2rad(10)),
+                                   (light.direction * surface_light_dir).sum(axis=1))
+        object_color = object_color * inLight[add_dim]
 
     if blinn:
-        halfway_dir = normalize(light_dir + view_dir)
-        spec = (norm * halfway_dir).sum(axis=1).clip(0)[add_dim] ** shininess_factor
+        halfway_dir = normalize(surface_light_dir + surface_view_dir)
+        spec = (fragment_normals * halfway_dir).sum(axis=1).clip(0)[add_dim] ** shininess_factor
 
     else:
-        reflect_dir = light.reflect(-light_dir, norm)
-        spec = (view_dir * reflect_dir).sum(axis=1).clip(0)[add_dim] ** shininess_factor
+        reflect_dir = light.reflect(-surface_light_dir, fragment_normals)
+        spec = (surface_view_dir * reflect_dir).sum(axis=1).clip(0)[add_dim] ** shininess_factor
 
-    specular = light.specular * spec * face.material.Ns
-    diff = (norm * light_dir).sum(axis=1)[add_dim]
-    diffuse = diff * light.color
-
-    # uniform_Mshadow = np.linalg.inv(camera.lookat)
-    # sb_p = face.view_vertices @ uniform_Mshadow
-    # sb_p = sb_p @ light.lookat @ light.projection
-    # sb_p /= sb_p[W]
-    # sb_p = sb_p @ light.viewport
-
-    const = 0.000005 if light.projection_type == PROJECTION_TYPE.PERSPECTIVE else 0.005
-    bias = const * np.tan(np.arccos(diff))
-    bias = np.clip(bias, 0, const).squeeze()
-
-    distance = np.linalg.norm((light.position - fragment_position), axis=1)
-
-    attenuation = 1.0 / (light.constant + light.linear * distance + light.quadratic * (distance * distance))[add_dim]
-
-    # if face.model.shadowing:
-    #     persp = face.screen_perspective(bar)
-    #     sb_p = persp @ face.shadow_vertices[XYZ]
-    #
-    #     sb_p = sb_p[(sb_p[X] < 1500) & (sb_p[Y] < 1500)]
-    #     _x, _y = sb_p[X].astype(int), sb_p[Y].astype(int)
-    #
-    #     shadow = (shadow_z_buffer[_x, _y]) >= sb_p[Z]
-    #     diffuse[shadow] *= 0.3
-    #     specular[shadow] = 0
-
-    frame[x, y] = ((light.ambient * attenuation + diffuse * attenuation + specular * attenuation) * object_color ** 2.2).clip(0.05, 1) * 255
+    specular = light.color * spec * light.specular_strength
+    intensity_light = (fragment_normals * surface_light_dir).sum(axis=1).clip(0)[add_dim]
+    diffuse = intensity_light * light.color
+    attenuation = light.attenuation(fragment_position)
+    frame[x, y] = (attenuation * (light.ambient + diffuse + specular) * object_color).clip(0.05, 1) * 255
+    # frame[x, y] = (light.ambient * object_color).clip(0.05, 1) * 255
 
 
 def flat_shading(face, light, frame, x, y):
     """Tested"""
-    intensity = face.view_normal @ -light.direction.squeeze()
+    intensity = face.unit_normal @ light.direction
     frame[x, y] = intensity.clip(0.3, 1.) * 255
 
 
@@ -419,3 +276,95 @@ def points_only(face, camera, image):
         w = p1[2]
         image[p1[1], p1[0]] = (255, 0, 0)
         image[p2[1], p2[0]] = (0, 0, 255)
+
+class Edge(tuple):
+    def __eq__(self, other):
+        return (other[0] == self[0] and other[1] == self[1]) or (other[0] == self[1] and other[1] == self[0])
+    def __hash__(self):
+        return hash(frozenset(self))
+
+def shadow_volumes(face, light, container):
+    if face.unit_normal @ light.position > 0:
+        for i in range(3):
+            curr_i, next_i = i, (i + 1) % 3
+            edge = Edge((face._vi[curr_i], face._vi[next_i]))
+            if edge in container:
+                container.discard(edge)
+            else:
+                container.add(edge)
+
+def shadow_volumes2(face, light, container):
+    if face.unit_normal @ light.position > 0:
+        for i in range(3):
+            curr_i, next_i = i, (i + 1) % 3
+            edge = (face._vi[curr_i], face._vi[next_i])
+            rev_edge = (face._vi[next_i], face._vi[curr_i])
+            if edge in container or rev_edge in container:
+                container.discard(edge)
+                container.discard(rev_edge)
+            else:
+                container.add(edge)
+
+
+def barycentric_shadow(verts, p):
+    """
+    https://ceng2.ktu.edu.tr/~cakir/files/grafikler/Texture_Mapping.pdf
+    """
+    a, b, c = verts.round()
+    v0 = b - a
+    v1 = c - a
+    v2 = p - a
+    d00 = np.float32(v0 @ v0)
+    d01 = np.float32(v0 @ v1)
+    d11 = np.float32(v1 @ v1)
+    d20 = v2 @ v0
+    d21 = v2 @ v1
+
+    denom = d00 * d11 - d01 * d01
+    if denom == 0:
+        return
+    invDenom = 1.0 / denom
+    v = (d11 * d20 - d01 * d21) * invDenom
+    w = (d00 * d21 - d01 * d20) * invDenom
+    u = 1.0 - v - w
+    return np.array([u, v, w]).T
+
+
+def quadrilateral_area(v0, v1, v2, v3):
+    # Calculate side lengths from vertex coordinates
+    side_a = np.linalg.norm(np.array(v1) - np.array(v0))
+    side_b = np.linalg.norm(np.array(v2) - np.array(v1))
+    side_c = np.linalg.norm(np.array(v3) - np.array(v2))
+    side_d = np.linalg.norm(np.array(v0) - np.array(v3))
+
+    s = (side_a + side_b + side_c + side_d) / 2.0
+    area = np.sqrt((s - side_a) * (s - side_b) * (s - side_c) * (s - side_d))
+    return area
+
+
+def normal(triangles):
+    # The cross product of two sides is a normal vector
+    return np.cross(triangles[:, :, 1] - triangles[:, :, 0],
+                    triangles[:, :, 2] - triangles[:, :, 0], axis=2)
+
+
+def area(triangles):
+    # The norm of the cross product of two sides is twice the area
+    return np.linalg.norm(normal(triangles), axis=1) / 2
+
+def triangle_area_vectorized(v0, v1, v2):
+    cross_product = np.cross(v1 - v0, v2 - v0)
+    area = 0.5 * np.linalg.norm(cross_product, axis=-1)
+    return area
+
+def bars_q(v0, v1, v2, v3, points):
+    quad_area = quadrilateral_area(v0, v1, v2, v3)
+    triangles = np.array([[[v0, v1, point], [v1, v2, point], [v2, v3, point], [v3, v0, point]] for point in points])
+    areas = np.zeros((triangles.shape[0], 4))
+    v0, v1, v2 = np.split(triangles, 3, axis=-2)
+    areas = triangle_area_vectorized(v0, v1, v2)
+    # areas = area(triangles)
+    coeffs = areas / quad_area
+    return areas
+
+# triangles = np.array([[[v0, v1, point], [v1, v2, point], [v2, v3, point], [v3, v0, point]] for point in p])

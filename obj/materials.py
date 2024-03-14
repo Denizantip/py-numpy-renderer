@@ -44,12 +44,12 @@ class Material:
     """
     Pm = 1
     Pr = 0.1
-    Ka = np.array((0.3, 0.3, 0.3))  # ambient
-    Kd = np.array((0.8, 0.8, 0.8))  # diffuse
-    Ks = np.array((1.0, 1.0, 1.0))  # specular
+    Ka = np.array((0.3, 0.3, 0.3))  # ambient color
+    Kd = np.array((0.8, 0.8, 0.8))  # diffuse color
+    Ks = np.array((1., 1., 1.))  # specular color
     d = 1.0  # alpha
     Tr = 0  # alpha
-    Ns = 1.0  # s
+    Ns = 128  # Ks exponent. Shininess factor
     illum = 1  # n
 
     def __setattr__(self, key, value):
