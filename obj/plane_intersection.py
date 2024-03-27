@@ -1,4 +1,5 @@
 import numpy as np
+from numba import jit
 
 
 def normalize_plane(plane):

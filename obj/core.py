@@ -1,7 +1,10 @@
 import os.path
+from functools import cache
 
 from typing import Iterator, Optional, List, Iterable
 from os import PathLike
+
+import matplotlib.pyplot as plt
 from PIL import Image
 
 from obj.axes import draw_axis
@@ -229,7 +232,7 @@ class Face:
         B = np.empty((*n.shape, 3))
         B[..., 0] = normalize(i)
         B[..., 1] = normalize(j)
-        B[..., 2] = normalize(n)
+        B[..., 2] = n
         return B
 
     @staticmethod
@@ -280,6 +283,7 @@ class Face:
 
         return np.column_stack((u, v, w, x))
 
+
 class Model:
     def __init__(self,
                  vertices: NDArray, uv: NDArray | None, normals: NDArray | None, faces: NDArray,
@@ -300,6 +304,7 @@ class Model:
         self.material_group = material_group or ['default']
         self.textures = TextureMaps(self)
         self.shape = None
+        self.silhouette = set()
 
     @property
     def faces(self) -> Iterator[Face]:
@@ -632,9 +637,9 @@ class Scene:
         self.models.append(model)
 
     def render(self):
-        frame = np.empty((*self.resolution, 3), dtype=np.uint8)
-        z_buffer = np.full(self.resolution, np.inf if self.system == SYSTEM.RH else -np.inf, dtype=np.float32)
-        stencil_buffer = np.full(self.resolution, 0, dtype=np.uint8)
+        frame = np.empty((*self.resolution, 3), dtype=np.float32)
+        z_buffer = np.full(self.resolution, np.inf if self.system == SYSTEM.RH else -np.inf, dtype=np.float64)
+        stencil_buffer = np.zeros(self.resolution, dtype=np.int16)
         mvp_planes = extract_frustum_planes(self.camera.MVP)
 
         if isinstance(self.skybox, CubeMap):
@@ -642,179 +647,82 @@ class Scene:
         elif isinstance(self.skybox, Iterable):
             frame[:] = np.array(self.skybox)
         else:
-            frame[:] = [64, 127, 198]
+            frame[:] = [64/255, 0.5, 198/255]
 
+        # first pass ambient light only
         for model in self.models:
-            shadow_volume = set()
             total_faces = model._faces.shape[0]
-
             rendered_faces = 0
             errors = [0, 0, 0, 0, 0]
+
+            for face in model.faces:
+                shadow_volumes(face, self.light, model.silhouette)
+                visible_all = (face.vertices @ mvp_planes.T > 0).all()
+                if visible_all:  # all vertices are visible (Inside view frustum)
+                    rasterize(face, frame, z_buffer, self.light, self.camera)
+                else:  # some vertices are visible
+                    polygon_vertices = clipping(face.vertices, mvp_planes) if model.clip else face.vertices
+                    if len(polygon_vertices):
+                        bar = barycentric(*face.vertices[XYZ], polygon_vertices[XYZ])
+                        uvs = face.uv
+                        if bar is None:
+                            continue
+                        if uvs is not None:
+                            uvs = bar @ uvs
+                        normals = face.get_normals(bar)
+
+                        for idx in tringulate_args(polygon_vertices.shape[0]):
+                            face.uv = uvs[idx] if uvs is not None else None
+                            face.normals = normals[idx]
+                            face.vertices = polygon_vertices[idx]
+                            rasterize(face, frame, z_buffer, self.light, self.camera)
+                        else:
+                            code = Errors.CLIPPED
+
+        #  Need to optimize it!!
+        #
+        for model in self.models:
+            for edge in model.silhouette:
+                A, B = edge
+                A, B = model.vertices[A], model.vertices[B]
+                C, D = (A + 1000 * normalize(A - (*self.light.position, 1)).squeeze(),
+                        B + 1000 * normalize(B - (*self.light.position, 1)).squeeze())
+
+                quad = np.array((A, B, D, C))
+                resterize_quadrangle(quad, z_buffer, stencil_buffer, frame, self.camera)
+
+        for model in self.models:
             for face in model.faces:
                 visible_all = (face.vertices @ mvp_planes.T > 0).all()
                 if visible_all:  # all vertices are visible (Inside view frustum)
-                    shadow_volumes(face, self.light, shadow_volume)
                     rasterize(face, frame, z_buffer, self.light, self.camera, stencil_buffer)
                 else:  # some vertices are visible
                     polygon_vertices = clipping(face.vertices, mvp_planes) if model.clip else face.vertices
 
                     if len(polygon_vertices):
                         bar = barycentric(*face.vertices[XYZ], polygon_vertices[XYZ])
+                        uvs = face.uv
                         if bar is None:
                             continue
-                        uvs = bar @ face.uv
+                        if uvs is not None:
+                            uvs = bar @ uvs
                         normals = face.get_normals(bar)
 
                         for idx in tringulate_args(polygon_vertices.shape[0]):
-                            face.uv = uvs[idx]
+                            face.uv = uvs[idx] if uvs is not None else None
                             face.normals = normals[idx]
                             face.vertices = polygon_vertices[idx]
-                            shadow_volumes(face, self.light, shadow_volume)
                             rasterize(face, frame, z_buffer, self.light, self.camera, stencil_buffer)
-                    else:
-                        code = Errors.CLIPPED
 
-            for edge in shadow_volume:
-                A, B = edge
-                A, B = model.vertices[A, :3], model.vertices[B, :3]
-                C, D = (A + 1 * normalize(A - self.light.position).squeeze(),
-                        B + 1 * normalize(B - self.light.position).squeeze())
-
-                for quad in ((A, B, C), (D, C, B)):
-
-
-                    quad = np.hstack([quad, np.ones((3, 1))])
-                    quad = quad @ self.camera.MVP
-                    quad = (quad / quad[W_COL]) @ self.camera.viewport
-
-                    a, b, c = quad[XYZ]
-                    test = normalize(np.cross(b - a, c - a)).squeeze() @ self.camera.position
-                    if test > 0:
-                        continue
-
-                    height, width = self.camera.resolution
-                    box = bound_box(quad, height, width)
-                    if box is None:
-                        continue
-
-                    min_x, max_x, min_y, max_y = box
-                    p = np.mgrid[min_x: max_x, min_y: max_y].reshape(2, -1).T
-                    bar_quad = barycentric_shadow(quad[:, :2].astype(int), p)
-
-                    if bar_quad is None:
-                        continue
-
-                    Bi = (bar_quad >= 0).all(axis=1)
-                    bar_quad = bar_quad[Bi]
-
-                    if not bar_quad.size:
-                        continue
-
-                    y, x = p[Bi].T
-                    z = bar_quad @ quad[Z]
-
-                    if self.camera.scene.system == SYSTEM.RH:
-                        Zi = (z_buffer[x, y] >= z)
-                    else:
-                        Zi = (z_buffer[x, y] <= z)
-                    #
-                    if not Zi.any():
-                        continue
-
-                    x, y, z = x[Zi], y[Zi], z[Zi]
-                    stencil_buffer[x, y] += 1
-                    # frame[x, y] = frame[x, y] // 2 + np.array([64, 64, 64], dtype=np.uint8) // 2
-            for edge in shadow_volume:
-                A, B = edge
-                A, B = model.vertices[A, :3], model.vertices[B, :3]
-                C, D = (A + 1 * normalize(A - self.light.position).squeeze(),
-                        B + 1 * normalize(B - self.light.position).squeeze())
-
-                for quad in ((A, B, C), (D, C, B)):
-
-                    quad = np.hstack([quad, np.ones((3, 1))])
-                    quad = quad @ self.camera.MVP
-                    quad = (quad / quad[W_COL]) @ self.camera.viewport
-
-                    a, b, c = quad[XYZ]
-                    test = normalize(np.cross(b - a, c - a)).squeeze() @ self.camera.position
-                    if test < 0:
-                        continue
-
-                    height, width = self.camera.resolution
-                    box = bound_box(quad, height, width)
-                    if box is None:
-                        continue
-
-                    min_x, max_x, min_y, max_y = box
-                    p = np.mgrid[min_x: max_x, min_y: max_y].reshape(2, -1).T
-                    bar_quad = barycentric_shadow(quad[:, :2].astype(int), p)
-
-                    if bar_quad is None:
-                        continue
-
-                    Bi = (bar_quad >= 0).all(axis=1)
-                    bar_quad = bar_quad[Bi]
-
-                    if not bar_quad.size:
-                        continue
-
-                    y, x = p[Bi].T
-                    z = bar_quad @ quad[Z]
-
-                    if self.camera.scene.system == SYSTEM.RH:
-                        Zi = (z_buffer[x, y] >= z)
-                    else:
-                        Zi = (z_buffer[x, y] <= z)
-                    #
-                    if not Zi.any():
-                        continue
-
-                    x, y, z = x[Zi], y[Zi], z[Zi]
-                    stencil_buffer[x, y] -= 1
-
-            for face in model.faces:
-                visible_all = (face.vertices @ mvp_planes.T > 0).all()
-                if visible_all:  # all vertices are visible (Inside view frustum)
-                    shadow_volumes(face, self.light, shadow_volume)
-                    rasterize(face, frame, z_buffer, self.light, self.camera, stencil_buffer)
-                else:  # some vertices are visible
-                    polygon_vertices = clipping(face.vertices, mvp_planes) if model.clip else face.vertices
-
-                    if len(polygon_vertices):
-                        bar = barycentric(*face.vertices[XYZ], polygon_vertices[XYZ])
-                        if bar is None:
-                            continue
-                        uvs = bar @ face.uv
-                        normals = face.get_normals(bar)
-
-                        for idx in tringulate_args(polygon_vertices.shape[0]):
-                            face.uv = uvs[idx]
-                            face.normals = normals[idx]
-                            face.vertices = polygon_vertices[idx]
-                            shadow_volumes(face, self.light, shadow_volume)
-                            rasterize(face, frame, z_buffer, self.light, self.camera, stencil_buffer)
-                    else:
-                        code = Errors.CLIPPED
-            # for s, e in shadow_volume:
-            #     start = model.vertices[s, None] @ self.camera.MVP
-            #     start = (start / start[W_COL]) @ self.camera.viewport
-            #
-            #     end = model.vertices[e, None] @ self.camera.MVP
-            #     end = (end / end[W_COL]) @ self.camera.viewport
-            #     for yy, xx, zz in bresenham_line(start[0, :3], end[0, :3], self.camera.resolution):
-            #         for i in [-1, 0, 1]:
-            #             xx = max(0, min(frame.shape[0] - 3, int(xx)))
-            #             yy = max(0, min(frame.shape[1] - 3, int(yy)))
-            #
-            #             if (z_buffer[xx + i, yy + i] - 1 / zz) * -1 < 0:
-            #                 frame[xx + i, yy + i] = (255, 0, 0)
-            #                 z_buffer[xx + i, yy + i] = zz
             print('Total faces', total_faces)
             print('Face rendered', rendered_faces)
             print('CLipped', errors)
 
         # draw_view_frustum(frame, self.camera, self.debug_camera, z_buffer, 1 if self.system == SYSTEM.LH else -1)
         # frame = draw_axis(frame, self.camera, z_buffer, 1 if self.system == SYSTEM.LH else -1)
-
-        return frame[::-1]
+        import matplotlib.pyplot as plt
+        plt.imshow(z_buffer[::-1])
+        plt.show()
+        plt.imshow(stencil_buffer[::-1])
+        plt.show()
+        return (frame[::-1] * 255).astype(np.uint8)

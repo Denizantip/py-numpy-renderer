@@ -9,6 +9,10 @@ from obj.lightning import Lightning
 from transformation import scale, SYSTEM, SUBSYSTEM, translation
 
 if __name__ == "__main__":
+    teapot = Model.load_model("teapot.obj")
+    stage = Model.load_model("stage.obj")
+    stage = stage @ scale(0.15)
+    stage = stage @ translation([0, -1.2, 0])
     # katana = Model.load_model("katana.obj")
     # sword = Model.load_model("pbr/sword.obj")
     # sword = sword @ scale(0.2)
@@ -19,42 +23,44 @@ if __name__ == "__main__":
     # minicooper = Model.load_model('minicooper.obj')
     cube = Model.load_model('obj_loader_test/cube.obj', shadowing=False)
     cube.normals = None
-    diablo = Model.load_model("diablo3_pose/diablo3_pose.obj")
-    diablo.normals = None
-    # deer = Model.load_model("deer.obj")
+
+    cube = cube @ scale(0.25)
+
+    deer = Model.load_model("deer.obj")
+    deer = deer @ scale(0.001) @ translation([0, 0, 1])
+    deer.vertices[:, 1] -= 1
     floor = Model.load_model("floor.obj")
-    # floor = floor @ scale(10)
-    # floor.vertices[:, 0] = floor.vertices[:, 0] * 5
-    # floor.vertices[:, 2] = floor.vertices[:, 2] * 5
-    # floor.vertices[:, 1] += 4
+    floor.textures.register('diffuse', 'floor_diffuse.tga', normalize=False)
+    # floor.textures.register('diffuse', 'grid.tga', normalize=False)
     spheres = Model.load_model("obj_loader_test/sphere.obj")
     # suit = Model.load_model("suit.obj")
 
-    floor.textures.register('diffuse', 'floor_diffuse.tga', normalize=False)
-    # floor.textures.register('diffuse', 'grid.tga', normalize=False)
-
-    # diablo.textures.register('normals', 'diablo3_pose/diablo3_pose_nm_tangent.tga', tangent=True)
+    diablo = Model.load_model("diablo3_pose/diablo3_pose.obj")
+    # diablo.normals = None
+    diablo.textures.register('normals', 'diablo3_pose/diablo3_pose_nm_tangent.tga', tangent=True)
     # diablo.textures.register('normals', 'diablo3_pose/diablo3_pose_nm.tga')
     # diablo.textures.register("specular", 'diablo3_pose/diablo3_pose_spec.tga')
-    # diablo.textures.register("diffuse", 'diablo3_pose/diablo3_pose_diffuse.tga', normalize=False)
+    diablo.textures.register("diffuse", 'diablo3_pose/diablo3_pose_diffuse.tga', normalize=False)
     # diablo.textures.register("glow", 'diablo3_pose/diablo3_pose_glow.tga', normalize=False)
 
     # floor.vertices = floor.vertices @ scale(2)
-    light = Light((2, 2, -2),
-                  light_type=Lightning.POINT_LIGHTNING,
+    light = Light((-1, 2, -3),
+                  light_type=Lightning.DIRECTIONAL_LIGHTNING,
                   show=False,
                   center=(0, 0, 0),
                   fovy=90,
-                  ambient_strength=0,
-                  specular_strength=1
+                  linear=0.01,
+                  quadratic=0.01,
+                  ambient_strength=0.5,
+                  specular_strength=2
                   )
 
-    camera = Camera((-1.5, 3, 3), up=np.array((0, 1, 0)),
+    camera = Camera((3, 1, 0), up=np.array((0, 1, 0)),
                     show=False,
                     fovy=90,
-                    near=0.1,
-                    far=10,
-                    backface_culling=False,
+                    near=0.001,
+                    far=20,
+                    backface_culling=True,
                     resolution=(1500, 1500),
                     projection_type=PROJECTION_TYPE.PERSPECTIVE,
                     center=(0, 0, 0)
@@ -63,7 +69,7 @@ if __name__ == "__main__":
     camera2 = Camera((2, 0, -2), up=np.array((0, 1, 0)),
                      show=False,
                      fovy=45,
-                     near=2,
+                     near=0.001,
                      far=3,
                      backface_culling=False,
                      resolution=(1500, 1500),
@@ -103,15 +109,16 @@ if __name__ == "__main__":
                   resolution=(height, width),
                   system=SYSTEM.RH,
                   subsystem=SUBSYSTEM.OPENGL)
-    # scene.add_model(floor)
-    # scene.add_model(diablo)
+    scene.add_model(diablo)
+    scene.add_model(deer)
+    scene.add_model(floor)
 
-    # scene.add_model(cube_map)
+    # scene.add_model(stage)
     # scene.add_model(minicooper)
     # scene.add_model(katana)
     # scene.add_model(sword)
-    # scene.add_model(deer)
-    scene.add_model(cube)
+    # scene.add_model(teapot)
+    # scene.add_model(cube)
     # scene.add_model(spheres)
 
     win = Tk()

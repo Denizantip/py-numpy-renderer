@@ -1,6 +1,6 @@
 import numpy as np
 
-from obj.constants import W_COL, XYZ, Z, W
+from obj.constants import W_COL, XYZ, Z, W, Y, X
 from obj.triangular import bresenham_line
 from plane_intersection import line_plane_intersection, extract_frustum_planes, is_visible
 
@@ -56,16 +56,6 @@ def draw_view_frustum(frame, camera, positioned_object, z_buffer, sign):
     # planes = extract_frustum_planes(camera.MVP)
     #
     for start, end in cube_frustum[edges]:
-    #     for plane in planes:
-    #         current_point_visible = is_visible(start, plane)
-    #         next_point_visible = is_visible(end, plane)
-    #         intersection_point = line_plane_intersection(start, end, plane)
-    #         if intersection_point is not None:
-    #             if current_point_visible:
-    #                 start = intersection_point
-    #             if next_point_visible:
-    #                 end = intersection_point
-
         for yy, xx, zz in bresenham_line(start[XYZ], end[XYZ], camera.resolution):
             for i in [-1, 0, 1]:
                 xx = max(0, min(frame.shape[0] - 3, int(xx)))

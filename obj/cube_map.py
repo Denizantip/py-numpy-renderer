@@ -44,12 +44,12 @@ class CubeMap:
 
         self.faces = [
             np.array([
-                [-1, 1, 1, 1],
-                [1, 1, 1, 1],
+                [-1,  1, 1, 1],
+                [ 1,  1, 1, 1],
                 [-1, -1, 1, 1]]),
             np.array([
-                [1, 1, 1, 1],
-                [1, -1, 1, 1],
+                [ 1,  1, 1, 1],
+                [ 1, -1, 1, 1],
                 [-1, -1, 1, 1]])
         ]
 
@@ -58,7 +58,7 @@ class CubeMap:
         texture = Image.open(name)
         texture = np.asarray(texture)[..., :3].copy()
         texture.setflags(write=1)
-        return texture
+        return texture / 255
 
     def __getitem__(self, vectors):
         # Find the major axis

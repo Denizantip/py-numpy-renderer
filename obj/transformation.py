@@ -32,25 +32,6 @@ def barycentric(a, b, c, p):
     return np.array([u, v, w]).T
 
 
-def barycentric_weights(triangle, point):
-    normal = np.cross(triangle[1] - triangle[0], triangle[2] - triangle[0])
-    area_abc = np.linalg.norm(normal)
-
-    area_pbc = np.linalg.norm(np.cross(triangle[1] - point, triangle[2] - point))
-    area_pca = np.linalg.norm(np.cross(triangle[2] - point, triangle[0] - point))
-    area_pab = np.linalg.norm(np.cross(triangle[0] - point, triangle[1] - point))
-
-    weight_a = area_pbc / area_abc
-    weight_b = area_pca / area_abc
-    weight_c = area_pab / area_abc
-
-    return weight_a, weight_b, weight_c
-
-
-def interpolate_texture_coordinates(texture_coords, weights):
-    return sum(np.array(coord) * weight for coord, weight in zip(texture_coords, weights))
-
-
 def bound_box(vert, height, width):
     min_x = vert[X].min().max(initial=0)
     max_x = vert[X].max().min(initial=width)
@@ -59,7 +40,7 @@ def bound_box(vert, height, width):
     if min_x > max_x or min_y > max_y:
         return
 
-    return np.array((min_x, max_x, min_y, max_y)).round().astype(np.int32)
+    return np.ceil((min_x, max_x, min_y, max_y), ).astype(np.int32)
 
 
 def normalize(a, axis=-1, order=2):
