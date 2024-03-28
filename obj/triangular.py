@@ -126,7 +126,7 @@ def rasterize(face, frame, z_buffer, light, camera, stencil_buffer=None):
     bar_screen = bar_screen[Zi]
     x, y = x[Zi], y[Zi]
 
-    if face.model.depth_test and stencil_buffer is None:
+    if face.model.depth_test and stencil_buffer is not None:
         z_buffer[x, y] = z[Zi]
 
     # Points
@@ -347,7 +347,7 @@ def resterize_quadrangle(quad, z_buffer, stencil_buffer, frame, camera):
     Ax, By, Cz = plane_normal
     D = -a @ plane_normal
 
-    height, width = camera.resolution
+    height, width = camera.scene.resolution
     box = bound_box(quad, height, width)
     if box is None:
         return
@@ -355,13 +355,10 @@ def resterize_quadrangle(quad, z_buffer, stencil_buffer, frame, camera):
     min_x, max_x, min_y, max_y = box
     p = np.mgrid[min_x: max_x, min_y: max_y].reshape(2, -1).T
 
-    Bi = ray_tracing_numpy_numba(p, quad[XY])
+    # Bi = ray_tracing_numpy_numba(p, quad[XY])
     # Bi = is_inside_sm_parallel(p, quad[XY])
     # Bi = mplPath(quad[XY], closed=False).contains_points(p)
-    # if is_front:
-    #     Bi = quad_test(p, quad[XY], inside)
-    # else:
-    #     Bi = quad_test(p, quad[XY], outside)
+    Bi = quad_test(p, quad[XY], inside if is_front else outside)
 
     y, x = p[Bi].T
 

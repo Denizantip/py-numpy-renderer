@@ -423,7 +423,7 @@ class TransformationMatrixMixin:
     def __init__(self,
                  x_offset=0,
                  y_offset=0,
-                 resolution=(1024, 1024),
+                 # resolution=(1024, 1024),
                  projection_type: PROJECTION_TYPE = PROJECTION_TYPE.PERSPECTIVE,
                  up=np.array([0, 1, 0]),
                  near=0.001,
@@ -431,7 +431,7 @@ class TransformationMatrixMixin:
                  fovy=90):
         self.up = up
         self.projection_type = projection_type
-        self.resolution = resolution
+        # self.resolution = resolution
         self.near = np.linalg.norm(self.position) if self.projection_type == PROJECTION_TYPE.ORTHOGRAPHIC else near
         self.far = far
         self.fovy = fovy
@@ -441,7 +441,8 @@ class TransformationMatrixMixin:
 
     @property
     def projection(self):
-        width, height = self.resolution
+        # width, height = self.scene.resolution
+        height, width = self.scene.resolution
         aspect_ratio = width / height
         perspective_func = perspectives[self.scene.subsystem][self.projection_type][self.scene.system]
         return perspective_func(self.fovy, aspect_ratio, self.near, self.far)
@@ -469,7 +470,7 @@ class TransformationMatrixMixin:
 
     @property
     def viewport(self):
-        return ViewPort(self.resolution, self.far, self.near, x_offset=self.x_offset, y_offset=self.y_offset)
+        return ViewPort(self.scene.resolution, self.far, self.near, x_offset=self.x_offset, y_offset=self.y_offset)
 
     def LinearizeDepth(self, depth):
         # z = depth * 2 - 1
@@ -649,49 +650,53 @@ class Scene:
         else:
             frame[:] = [64/255, 0.5, 198/255]
 
-        # first pass ambient light only
+        # # first pass ambient light only
+        # for model in self.models:
+        #     total_faces = model._faces.shape[0]
+        #     rendered_faces = 0
+        #     errors = [0, 0, 0, 0, 0]
+        #
+        #     for face in model.faces:
+        #         shadow_volumes(face, self.light, model.silhouette)
+        #         visible_all = (face.vertices @ mvp_planes.T > 0).all()
+        #         if visible_all:  # all vertices are visible (Inside view frustum)
+        #             rasterize(face, frame, z_buffer, self.light, self.camera)
+        #         else:  # some vertices are visible
+        #             polygon_vertices = clipping(face.vertices, mvp_planes) if model.clip else face.vertices
+        #             if len(polygon_vertices):
+        #                 bar = barycentric(*face.vertices[XYZ], polygon_vertices[XYZ])
+        #                 uvs = face.uv
+        #                 if bar is None:
+        #                     continue
+        #                 if uvs is not None:
+        #                     uvs = bar @ uvs
+        #                 normals = face.get_normals(bar)
+        #
+        #                 for idx in tringulate_args(polygon_vertices.shape[0]):
+        #                     face.uv = uvs[idx] if uvs is not None else None
+        #                     face.normals = normals[idx]
+        #                     face.vertices = polygon_vertices[idx]
+        #                     rasterize(face, frame, z_buffer, self.light, self.camera)
+        #                 else:
+        #                     code = Errors.CLIPPED
+        #
+        # # second pass to build shadow volumes
+        # for model in self.models:
+        #     for edge in model.silhouette:
+        #         A, B = edge
+        #         A, B = model.vertices[A], model.vertices[B]
+        #         C, D = (A + 1000 * normalize(A - (*self.light.position, 1)).squeeze(),
+        #                 B + 1000 * normalize(B - (*self.light.position, 1)).squeeze())
+        #
+        #         quad = np.array((A, B, D, C))
+        #         resterize_quadrangle(quad, z_buffer, stencil_buffer, frame, self.camera)
+
+        # third pass render other light excep shadowed places
         for model in self.models:
             total_faces = model._faces.shape[0]
             rendered_faces = 0
             errors = [0, 0, 0, 0, 0]
 
-            for face in model.faces:
-                shadow_volumes(face, self.light, model.silhouette)
-                visible_all = (face.vertices @ mvp_planes.T > 0).all()
-                if visible_all:  # all vertices are visible (Inside view frustum)
-                    rasterize(face, frame, z_buffer, self.light, self.camera)
-                else:  # some vertices are visible
-                    polygon_vertices = clipping(face.vertices, mvp_planes) if model.clip else face.vertices
-                    if len(polygon_vertices):
-                        bar = barycentric(*face.vertices[XYZ], polygon_vertices[XYZ])
-                        uvs = face.uv
-                        if bar is None:
-                            continue
-                        if uvs is not None:
-                            uvs = bar @ uvs
-                        normals = face.get_normals(bar)
-
-                        for idx in tringulate_args(polygon_vertices.shape[0]):
-                            face.uv = uvs[idx] if uvs is not None else None
-                            face.normals = normals[idx]
-                            face.vertices = polygon_vertices[idx]
-                            rasterize(face, frame, z_buffer, self.light, self.camera)
-                        else:
-                            code = Errors.CLIPPED
-
-        #  Need to optimize it!!
-        #
-        for model in self.models:
-            for edge in model.silhouette:
-                A, B = edge
-                A, B = model.vertices[A], model.vertices[B]
-                C, D = (A + 1000 * normalize(A - (*self.light.position, 1)).squeeze(),
-                        B + 1000 * normalize(B - (*self.light.position, 1)).squeeze())
-
-                quad = np.array((A, B, D, C))
-                resterize_quadrangle(quad, z_buffer, stencil_buffer, frame, self.camera)
-
-        for model in self.models:
             for face in model.faces:
                 visible_all = (face.vertices @ mvp_planes.T > 0).all()
                 if visible_all:  # all vertices are visible (Inside view frustum)
@@ -720,9 +725,4 @@ class Scene:
 
         # draw_view_frustum(frame, self.camera, self.debug_camera, z_buffer, 1 if self.system == SYSTEM.LH else -1)
         # frame = draw_axis(frame, self.camera, z_buffer, 1 if self.system == SYSTEM.LH else -1)
-        import matplotlib.pyplot as plt
-        plt.imshow(z_buffer[::-1])
-        plt.show()
-        plt.imshow(stencil_buffer[::-1])
-        plt.show()
         return (frame[::-1] * 255).astype(np.uint8)

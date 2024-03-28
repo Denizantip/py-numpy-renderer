@@ -34,9 +34,9 @@ def barycentric(a, b, c, p):
 
 def bound_box(vert, height, width):
     min_x = vert[X].min().max(initial=0)
-    max_x = vert[X].max().min(initial=width)
+    max_x = vert[X].max().min(initial=width - 1)
     min_y = vert[Y].min().max(initial=0)
-    max_y = vert[Y].max().min(initial=height)
+    max_y = vert[Y].max().min(initial=height - 1)
     if min_x > max_x or min_y > max_y:
         return
 
@@ -121,7 +121,8 @@ def lookAtRH(eye, center, up=np.array([0, 1, 0])):
 
 
 def ViewPort(resolution, far, near, x_offset=0, y_offset=0):
-    width, height = resolution
+    # width, height = resolution
+    height, width = resolution
     depth = far - near
     m = np.array(
         [
