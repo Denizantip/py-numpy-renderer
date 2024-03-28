@@ -44,7 +44,7 @@ if __name__ == "__main__":
     # diablo.textures.register("glow", 'diablo3_pose/diablo3_pose_glow.tga', normalize=False)
 
     # floor.vertices = floor.vertices @ scale(2)
-    light = Light((-1, 2, -3),
+    light = Light((0, 2, 0),
                   light_type=Lightning.DIRECTIONAL_LIGHTNING,
                   show=False,
                   center=(0, 0, 0),
@@ -55,7 +55,7 @@ if __name__ == "__main__":
                   specular_strength=2
                   )
 
-    camera = Camera((3, 1, 0), up=np.array((0, 1, 0)),
+    camera = Camera((0, 1, 3), up=np.array((0, 1, 0)),
                     show=False,
                     fovy=90,
                     near=0.001,
@@ -98,7 +98,7 @@ if __name__ == "__main__":
                              right="cubemap_debug/right.png",
                              normalize_input=True)
 
-    height, width = (1500, 1500)
+    height, width = (1500, 2000)
     scene = Scene(camera,
                   light,
                   debug_camera=camera2,
@@ -110,10 +110,10 @@ if __name__ == "__main__":
                   system=SYSTEM.RH,
                   subsystem=SUBSYSTEM.OPENGL)
     scene.add_model(diablo)
-    scene.add_model(deer)
+    # scene.add_model(deer)
     scene.add_model(floor)
 
-    # scene.add_model(stage)
+    scene.add_model(stage)
     # scene.add_model(minicooper)
     # scene.add_model(katana)
     # scene.add_model(sword)
