@@ -1,5 +1,4 @@
 import numpy as np
-from numba import jit
 
 
 def normalize_plane(plane):
@@ -25,7 +24,7 @@ def line_plane_intersection(line_point1, line_point2, plane_coefficients):
 
 
 def is_visible(point, plane):
-    return plane @ point >= 0
+    return plane @ point > 0
 
 
 def extract_frustum_planes(matrix):
@@ -44,42 +43,60 @@ def extract_frustum_planes(matrix):
     return planes
 
 
-def clipping(polygon, planes):
+def clipping(polygon_vertices, clipping_planes):
     """
         Sutherland–Hodgman algorithm to clip a polygon with a list of planes.
         Forward solution. Iterates through all edges and all planes.
     """
-    result_polygon = polygon
-    for plane in planes:
-        new_polygon = []
+    result_polygon = polygon_vertices
+    for plane in clipping_planes:
+        clipped_polygon = []
+        num_edges = len(result_polygon)
 
-        edges = len(result_polygon)
-        for i in range(edges):
-            current_point = result_polygon[i]
-            next_point = result_polygon[(i + 1) % edges]
+        for i in range(num_edges):
+            current_vertex = result_polygon[i]
+            next_vertex = result_polygon[(i + 1) % num_edges]
 
-            current_point_visible = is_visible(current_point, plane)
-            next_point_visible = is_visible(next_point, plane)
+            current_vertex_visible = is_visible(current_vertex, plane)
+            next_vertex_visible = is_visible(next_vertex, plane)
 
-            if current_point_visible:
-                new_polygon.append(current_point)
+            if current_vertex_visible:
+                clipped_polygon.append(current_vertex)
 
             #  income or outcome
-            if current_point_visible ^ next_point_visible:
-                intersection_point = line_plane_intersection(next_point, current_point, plane)
+            if current_vertex_visible ^ next_vertex_visible:
+                intersection_point = line_plane_intersection(next_vertex, current_vertex, plane)
                 if intersection_point is not None:
-                    new_polygon.append(intersection_point)
+                    clipped_polygon.append(intersection_point)
 
+        result_polygon = clipped_polygon
+    return np.array(result_polygon)
+
+def gen_idx(rows, cols):
+    return (([(i, j), ((i + 1) % rows, j)]) for i in range(cols) for j in range(rows))
+
+def clip2(polygon, planes):
+    result_polygon = polygon
+    visibility = polygon @ planes.T >= 0
+    rows, cols = visibility.shape
+    idxs = gen_idx(rows, cols)
+    for curr, next in idxs:
+        new_polygon = []
+        if visibility[curr]:
+            new_polygon.append(polygon[curr[0]])
+        if np.logical_xor(visibility[(curr, next)]):
+            intersection_point = line_plane_intersection(polygon[curr[0]], polygon[next[0]], planes[curr[1]])
+            if intersection_point is not None:
+                new_polygon.append(intersection_point)
         result_polygon = new_polygon
     return np.array(result_polygon)
 
-
-def get_parameterized(matrix):
+def get_parameterized(planes):
     """
     Returns the parameterized plane of the given matrix.
     Can be used for debugging purposes in https://www.geogebra.org/3d
     """
-    for plane in extract_frustum_planes(matrix):
+    for plane in planes:
         vars = 'xyz '
         print(' + '.join((''.join((f"{coef:.2f}", var)) for coef, var in zip(plane, vars))).replace("+ -", "- "), "= 0",
               sep='')

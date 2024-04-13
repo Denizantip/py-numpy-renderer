@@ -3,6 +3,8 @@ import numpy as np
 
 class Material:
     """
+    https://paulbourke.net/dataformats/mtl/
+
     Ka - defines the Ambient color of the material to be (r,g,b).
     Kd - defines the Diffuse color of the material to be (r,g,b).
     Ks - defines the Specular color of the material to be (r,g,b). This color shows up in highlights.
@@ -42,14 +44,14 @@ class Material:
     disp filename. Height (displacement) map.
     names a file containing a texture map, which should just be an ASCII dump of RGB values;
     """
-    Pm = 1
-    Pr = 0.1
-    Ka = np.array((0.3, 0.3, 0.3))  # ambient color
+    Pm = 0.5
+    Pr = 0.5
+    Ka = np.array((0.3, 0, 0))  # ambient color
     Kd = np.array((0.8, 0.8, 0.8))  # diffuse color
     Ks = np.array((1., 1., 1.))  # specular color
     d = 1.0  # alpha
     Tr = 0  # alpha
-    Ns = 128  # Ks exponent. Shininess factor
+    Ns = 16  # Ks exponent. Shininess factor [1 -1000]
     illum = 1  # n
 
     def __setattr__(self, key, value):
@@ -60,3 +62,16 @@ class Material:
                 super().__setattr__(key, value[0])
         else:
             super().__setattr__(key, np.array(value, dtype=np.float32))
+
+    def __getattr__(self, item):
+        map = {
+            "diffuse": ("map_Kd", "Kd"),
+            "ambient": ("map_Ka", "Ka"),
+            "specular": ("map_Ks", "Ks"),
+            "shininess": ("map_Ns", "Ns")
+         }
+        attr = map.get(item, None)
+        if attr is not None:
+            return super(self).__getattr__(attr[0])
+        else:
+            raise AttributeError("No such attribute", item)

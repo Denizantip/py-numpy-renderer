@@ -1,21 +1,21 @@
-import numba
+from enum import Flag, auto
 from matplotlib.path import Path as mplPath
+from numba import jit
 
 from obj.constants import *
 from obj.lightning import Lightning
-from obj.plane_intersection import extract_frustum_planes, clipping
+from obj.plane_intersection import clipping
 from transformation import bound_box, barycentric, normalize
 
 import numpy as np
-from numba import jit, njit
 
 
-class Errors:
-    BACK_FACE_CULLING = 1
-    WRONG_MIN_MAX = 1 << 1
-    EMPTY_B = 1 << 2
-    EMPTY_Z = 1 << 3
-    CLIPPED = 1 << 4
+class Errors(Flag):
+    BACK_FACE_CULLING = auto()
+    WRONG_MIN_MAX = auto()
+    EMPTY_B = auto()
+    EMPTY_Z = auto()
+    CLIPPED = auto()
 
 
 def bresenham_line(start_point, end_point, bound):
@@ -47,7 +47,7 @@ def make_triangles(p):
         yield p[i], p[i - length + 1]
 
 
-def rasterize(face, frame, z_buffer, light, camera, stencil_buffer=None):
+def rasterize(face, frame, z_buffer, light, camera, stencil_buffer=None, debug_camera=None):
     """
     Previously this conversion could be done on ALL vertices at once.
     But the clipping by Sutherland Hodgeman became impossible. Because of absence of Fragment shader where clipping
@@ -56,8 +56,10 @@ def rasterize(face, frame, z_buffer, light, camera, stencil_buffer=None):
     """
     face.world_vertices = face.vertices.copy()
     face.vertices = face.vertices @ camera.MVP
-    # clipping_space = face.vertices.copy()
-    depth = 1 / face.vertices[W_COL]
+
+    clipping_space = face.world_vertices @ camera.MVP
+
+    depth = 1 / face.vertices[W_COL]  #     ↖
     face.vertices *= depth  # perspective division
     face.vertices = face.vertices @ camera.viewport
     face.vertices[W_COL] = depth
@@ -95,20 +97,22 @@ def rasterize(face, frame, z_buffer, light, camera, stencil_buffer=None):
 
     Bi = (bar_screen >= 0).all(axis=1)
 
-    # clip_idx = bar_screen @ clipping_space
-    # Bi = Bi & (-clip_idx[W] <= clip_idx[X]) & (clip_idx[X] <= clip_idx[W]) & \
-    #           (-clip_idx[W] <= clip_idx[Y]) & (clip_idx[Y] <= clip_idx[W]) & \
-    #           (-clip_idx[W] <= clip_idx[Z]) & (clip_idx[Z] <= clip_idx[W])
+    clip_idx = face.screen_perspective(bar_screen) @ clipping_space
+    Bi = Bi & (-clip_idx[W] <= clip_idx[X]) & (clip_idx[X] <= clip_idx[W]) & \
+              (-clip_idx[W] <= clip_idx[Y]) & (clip_idx[Y] <= clip_idx[W]) & \
+              (-clip_idx[W] <= clip_idx[Z]) & (clip_idx[Z] <= clip_idx[W])
 
     bar_screen = bar_screen[Bi]
     if not bar_screen.size:
         return Errors.EMPTY_B
 
     y, x = p[Bi].T
+    # y = np.floor(bar_screen @ face.vertices[X]).astype(int)
+    # x = np.floor(bar_screen @ face.vertices[Y]).astype(int)
     z = bar_screen @ face.vertices[Z]
 
     if camera.scene.system == SYSTEM.RH:
-        #  cause of two passes we got here z-fighting :(
+        #  Due to two passes we got here z-fighting :(
         Zi = (z_buffer[x, y] >= z)
     else:
         Zi = (z_buffer[x, y] <= z)
@@ -118,7 +122,6 @@ def rasterize(face, frame, z_buffer, light, camera, stencil_buffer=None):
 
     if stencil_buffer is not None:
         Zi &= (stencil_buffer[x, y] == 0)
-        # stencil_buffer[x, y] = 0
 
     if not Zi.any():
         return Errors.EMPTY_Z
@@ -145,16 +148,17 @@ def rasterize(face, frame, z_buffer, light, camera, stencil_buffer=None):
 
 
 def general_shading(face, bar, light, camera, frame, x, y, first_pass):
-    blinn = False
     perspective_corrected_barycentric = face.screen_perspective(bar)
+    if perspective_corrected_barycentric is None:
+        return Errors.EMPTY_B
     object_color = face.get_object_color(perspective_corrected_barycentric)
+    # fragment_position = perspective_corrected_barycentric @ face.world_vertices[XYZ]
     fragment_position = perspective_corrected_barycentric @ face.world_vertices[XYZ]
     attenuation = light.attenuation(fragment_position)
     if first_pass:
         frame[x, y] = (attenuation * light.ambient * object_color).clip(0.05, 1)
         return
 
-    shininess_factor = face.get_specular(perspective_corrected_barycentric)
     fragment_normals = face.get_normals(perspective_corrected_barycentric)
 
     if light.light_type == Lightning.DIRECTIONAL_LIGHTNING:
@@ -169,16 +173,13 @@ def general_shading(face, bar, light, camera, frame, x, y, first_pass):
                                    (light.direction * surface_light_dir).sum(axis=1))
         object_color = object_color * inLight[add_dim]
 
-    if blinn:
-        halfway_dir = normalize(surface_light_dir + surface_view_dir)
-        spec = (fragment_normals * halfway_dir).sum(axis=1).clip(0)[add_dim] ** shininess_factor
+    specular_light = face.get_specular(perspective_corrected_barycentric)
 
-    else:
-        reflect_dir = light.reflect(-surface_light_dir, fragment_normals)
-        spec = (surface_view_dir * reflect_dir).sum(axis=1).clip(0)[add_dim] ** shininess_factor
+    halfway_dir = normalize(surface_light_dir + surface_view_dir)
+    specular_reflection = (fragment_normals * halfway_dir).sum(axis=1).clip(0)[add_dim] ** face.material.Ns
 
-    specular = light.color * spec * light.specular_strength
-    intensity_light = (fragment_normals * surface_light_dir).sum(axis=1).clip(0)[add_dim]
+    specular = light.color * specular_reflection * light.specular_strength * specular_light
+    intensity_light = (fragment_normals * surface_light_dir).sum(axis=1)[add_dim]
     diffuse = intensity_light * light.color
     frame[x, y] = (attenuation * object_color * (light.ambient + diffuse + specular)).clip(0.05, 1)
 
@@ -195,7 +196,8 @@ def gouraud(face, light, frame, bar, x, y):
 
 
 def fresnelSchlick(cosTheta, F0):
-    return F0 + (1.0 - F0) * cosTheta.clip(0, 1) ** 5
+    # return F0 + (1.0 - F0) * cosTheta.clip(0, 1) ** 5
+    return F0 + (1.0 - F0) * ((1 - cosTheta[:, None]) ** 5)
 
 
 def DistributionGGX(N, H, roughness):
@@ -204,21 +206,19 @@ def DistributionGGX(N, H, roughness):
     NdotH = (N * H).sum(axis=1).clip(0)
     NdotH2 = NdotH * NdotH
 
-    num = a2
     denom = (NdotH2 * (a2 - 1.0) + 1.0)
     denom = np.pi * denom * denom
 
-    return num / denom
+    return a2 / denom
 
 
 def GeometrySchlickGGX(NdotV, roughness):
     r = (roughness + 1.0)
     k = (r * r) / 8.0
 
-    num = NdotV
     denom = NdotV * (1.0 - k) + k
 
-    return num / denom
+    return NdotV / denom
 
 
 def GeometrySmith(N, V, L, roughness):
@@ -231,18 +231,19 @@ def GeometrySmith(N, V, L, roughness):
 
 
 def pbr(face, light, camera, frame, bar, x, y):
-    albedo = face.get_object_color(bar)
+    albedo = 1
+    # albedo = face.get_object_color(bar)
     metallic = face.material.Pm
     roughness = face.material.Pr
     ao = np.array(face.material.Ka)
 
-    PI = 3.14159265359
+    PI = np.pi
 
     N = normalize(bar @ face.normals)
     V = normalize(camera.position - (bar @ face.vertices[XYZ]))
 
-    F0 = 0.04
-    # F0 = np.arange(F0, albedo, metallic)
+    F0 = np.array([0.04, 0.04, 0.04])
+    F0 = mix(F0, albedo, metallic)
 
     # calculate per-light radiance
     L = normalize(light.position - (bar @ face.vertices[XYZ]))
@@ -254,7 +255,7 @@ def pbr(face, light, camera, frame, bar, x, y):
     # cook-torrance brdf
     NDF = DistributionGGX(N, H, roughness)[add_dim]
     G = GeometrySmith(N, V, L, roughness)[add_dim]
-    F = fresnelSchlick((H * V).sum(axis=1).clip(0), F0)[add_dim]
+    F = fresnelSchlick((H * V).sum(axis=1).clip(0), F0)
 
     kS = F
     kD = (1.0) - kS
@@ -271,10 +272,11 @@ def pbr(face, light, camera, frame, bar, x, y):
     ambient = albedo * ao
     color = ambient + Lo
 
-    # color = color / (color + (1.0))
+    color = color / (color + (1.0))
     # color = pow(color, (1.0/2.2))
+    color = color ** (1.0/2.2)
 
-    frame[x, y] = (color * 255).astype(np.uint8)
+    frame[x, y] = color
 
 
 def wireframe_shading(face, camera, frame, z_buffer):
@@ -309,7 +311,7 @@ class Edge(tuple):
 
 def shadow_volumes(face, light, container):
     if face.unit_normal @ light.position > 0:
-        for i in range(3): #  triple edge: AB BC CA
+        for i in range(3):  # triple edge: AB BC CA
             curr_i, next_i = i, (i + 1) % 3
             edge = Edge((face._vi[curr_i], face._vi[next_i]))
             if edge in container:
@@ -319,11 +321,12 @@ def shadow_volumes(face, light, container):
 
 
 def inside(p, p0, p1):
-    return np.cross(p - p0, p1 - p0) >= 0
+    return np.cross(p - p0, p1 - p0) > 0
 
 
 def outside(p, p0, p1):
-    return np.cross(p - p0, p1 - p0) <= 0
+    return np.cross(p - p0, p1 - p0) < 0
+
 
 def quad_test(points, polygon, callback):
     l = len(polygon)
@@ -332,14 +335,14 @@ def quad_test(points, polygon, callback):
 
 
 def resterize_quadrangle(quad, z_buffer, stencil_buffer, frame, camera):
-    planes = extract_frustum_planes(camera.MVP)
-    quad = clipping(quad, planes)
+    quad = clipping(quad, camera.frustum_planes)
 
     if not len(quad):
         return
 
-    quad = quad @ camera.MVP
-    quad = (quad / quad[W_COL]) @ camera.viewport
+    quad_ndc = quad @ camera.MVP
+
+    quad = (quad_ndc / quad_ndc[W_COL]) @ camera.viewport
     a, b, c, *_ = quad[XYZ]
     plane_normal = np.cross(a - b, a - c)
     is_front = plane_normal[2] < 0
@@ -357,6 +360,7 @@ def resterize_quadrangle(quad, z_buffer, stencil_buffer, frame, camera):
 
     # Bi = ray_tracing_numpy_numba(p, quad[XY])
     # Bi = is_inside_sm_parallel(p, quad[XY])
+    # Bi = points_inside_polygon(p, quad[XY])
     # Bi = mplPath(quad[XY], closed=False).contains_points(p)
     Bi = quad_test(p, quad[XY], inside if is_front else outside)
 
@@ -380,26 +384,50 @@ def resterize_quadrangle(quad, z_buffer, stencil_buffer, frame, camera):
 
     # frame[x, y] = frame[x, y] * 0.75 + np.array([0.25, 0.25, 0.25]) * 0.25
 
+# @jit(nopython=True)
+def points_inside_polygon(points, vs):
+    x, y = points[X], points[Y]
+    x_vs = vs[X]
+    y_vs = vs[Y]
 
-@jit(nopython=True)
-def ray_tracing_numpy_numba(points,poly):
-    x,y = points[:,0], points[:,1]
-    n = len(poly)
-    inside = np.zeros(len(x),np.bool_)
-    p2x = 0.0
-    p2y = 0.0
-    p1x,p1y = poly[0]
-    for i in range(n+1):
-        p2x,p2y = poly[i % n]
-        idx = np.nonzero((y > min(p1y,p2y)) & (y <= max(p1y,p2y)) & (x <= max(p1x,p2x)))[0]
-        if len(idx):    # <-- Fixed here. If idx is null skip comparisons below.
-            if p1y != p2y:
-                xints = (y[idx]-p1y)*(p2x-p1x)/(p2y-p1y)+p1x
-            if p1x == p2x:
-                inside[idx] = ~inside[idx]
-            else:
-                idxx = idx[x[idx] <= xints]
-                inside[idxx] = ~inside[idxx]
+    x_shifted = np.roll(x_vs, 1)
+    y_shifted = np.roll(y_vs, 1)
 
-        p1x,p1y = p2x,p2y
+    denom = y_shifted - y_vs
+    # denom[denom == 0] = np.inf
+
+    intersect = ((y_vs > y[:, np.newaxis]) != (y_shifted > y[:, np.newaxis])) & (
+                x[:, np.newaxis] < (x_shifted - x_vs) * (y[:, np.newaxis] - y_vs) / denom + x_vs)
+    inside = np.sum(intersect, axis=1) % 2 == 1
+
     return inside
+
+def mix(x, y, a):
+    """
+    Linearly interpolate between x and y based on a (alpha).
+    """
+    return x * (1 - a) + y * a
+
+
+# @jit(nopython=True)
+# def ray_tracing_numpy_numba(points,poly):
+#     x,y = points[:,0], points[:,1]
+#     n = len(poly)
+#     inside = np.zeros(len(x),np.bool_)
+#     p2x = 0.0
+#     p2y = 0.0
+#     p1x,p1y = poly[0]
+#     for i in range(n+1):
+#         p2x,p2y = poly[i % n]
+#         idx = np.nonzero((y > min(p1y,p2y)) & (y <= max(p1y,p2y)) & (x <= max(p1x,p2x)))[0]
+#         if len(idx):    # <-- Fixed here. If idx is null skip comparisons below.
+#             if p1y != p2y:
+#                 xints = (y[idx]-p1y)*(p2x-p1x)/(p2y-p1y)+p1x
+#             if p1x == p2x:
+#                 inside[idx] = ~inside[idx]
+#             else:
+#                 idxx = idx[x[idx] <= xints]
+#                 inside[idxx] = ~inside[idxx]
+#
+#         p1x,p1y = p2x,p2y
+#     return inside

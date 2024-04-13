@@ -56,7 +56,7 @@ def draw_view_frustum(frame, camera, positioned_object, z_buffer, sign):
     # planes = extract_frustum_planes(camera.MVP)
     #
     for start, end in cube_frustum[edges]:
-        for yy, xx, zz in bresenham_line(start[XYZ], end[XYZ], camera.resolution):
+        for yy, xx, zz in bresenham_line(start[XYZ], end[XYZ], camera.scene.resolution):
             for i in [-1, 0, 1]:
                 xx = max(0, min(frame.shape[0] - 3, int(xx)))
                 yy = max(0, min(frame.shape[1] - 3, int(yy)))

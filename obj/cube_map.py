@@ -66,9 +66,6 @@ class CubeMap:
         major_axis_indices = np.abs(vectors).argmax(axis=1)
         major_axis_amplitudes = vectors[shape_idx, major_axis_indices, np.newaxis]
 
-        # Determine sign of major axis amplitudes
-        sign = np.sign(major_axis_amplitudes)
-
         # Extract UV coordinates without major axis values
         uv_coordinates = np.delete(vectors, major_axis_indices + shape_idx * vectors.shape[1]).reshape(
             vectors.shape[0], -1)

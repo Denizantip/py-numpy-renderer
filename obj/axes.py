@@ -9,12 +9,12 @@ def transformer(vert, MVP, Viewport):
     vert = vert @ MVP
     vert /= vert[W_COL]
     vert = vert @ Viewport
-    vert = vert.astype(int)
+    # vert = vert.astype(int)
     return vert
 
 
 def draw_axis(frame, camera, z_buffer, sign):
-    MVP = camera.lookat @ camera.projection
+    MVP = camera.MVP
     x_axis = np.array([[-1, 0, 0, 1], [1, 0, 0, 1]])
     x_letter_pos = np.array([1.05, 0, 0, 1])
     x_letter_neg = np.array([-1.2, 0, 0, 1])
@@ -39,7 +39,7 @@ def draw_axis(frame, camera, z_buffer, sign):
     z_letter_pos = transformer(z_letter_pos, MVP, camera.viewport)
     z_letter_neg = transformer(z_letter_neg, MVP, camera.viewport)
 
-    image = Image.fromarray(frame)
+    image = Image.fromarray((frame * 255).astype(np.uint8))
     font = ImageFont.truetype("/usr/share/fonts/truetype/freefont/FreeSans.ttf", 20)
     font = ImageFont.TransposedFont(font, Image.Transpose.FLIP_TOP_BOTTOM)
 
@@ -59,11 +59,11 @@ def draw_axis(frame, camera, z_buffer, sign):
     frame = np.array(image)
 
     for (start, end), color in zip([x_axis, y_axis, z_axis], [R, G, B]):
-        for yy, xx, zz in bresenham_line(start[:3], end[:3], camera.resolution):
+        for yy, xx, zz in bresenham_line(start[:3], end[:3], camera.scene.resolution):
             for i in range(3):
                 xx = max(0, min(frame.shape[0] - 4, int(xx)))
                 yy = max(0, min(frame.shape[1] - 4, int(yy)))
                 if (z_buffer[xx + i, yy + i] - 1 / zz) * sign < 0:
                     frame[xx + i, yy + i] = color
                     z_buffer[xx + i, yy + i] = zz
-    return frame
+    return frame / 255

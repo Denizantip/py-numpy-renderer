@@ -34,9 +34,9 @@ def barycentric(a, b, c, p):
 
 def bound_box(vert, height, width):
     min_x = vert[X].min().max(initial=0)
-    max_x = vert[X].max().min(initial=width - 1)
+    max_x = vert[X].max().min(initial=width)
     min_y = vert[Y].min().max(initial=0)
-    max_y = vert[Y].max().min(initial=height - 1)
+    max_y = vert[Y].max().min(initial=height)
     if min_x > max_x or min_y > max_y:
         return
 
@@ -171,9 +171,7 @@ def opengl_perspectiveRH(fovy, aspect, z_near, z_far):
     perspective_matrix[0, 0] = f / aspect
     perspective_matrix[1, 1] = f
     perspective_matrix[2, 2] = -(z_far + z_near) / (z_far - z_near)
-    # perspective_matrix[2, 2] = -1
     perspective_matrix[3, 2] = -2.0 * z_far * z_near / (z_far - z_near)
-    # perspective_matrix[3, 2] = -2.0 * z_near
     perspective_matrix[2, 3] = -1.0
     return perspective_matrix
 
@@ -265,10 +263,6 @@ def rotate_xyz(a):
     return rotate_z @ rotate_y @ rotate_x
 
 
-def embed(vertices, init=1):
-    return np.hstack([vertices, np.full((vertices.shape[0], 1), init)])
-
-
 def FPSViewRH(
         eye: vec3,
         pitch: Annotated[float, ValueRange(-90, 90)],
@@ -314,7 +308,7 @@ def perspective_matrix_3point(d, aspect_ratio, fov_y, angles):
         [0, 0, 0, 1]
     ])
 
-    return np.dot(np.dot(rotation_matrix, perspective_matrix), np.linalg.inv(rotation_matrix))
+    return rotation_matrix @ perspective_matrix @ np.linalg.inv(rotation_matrix)
 
 
 def perspective_matrix_2point(d, aspect_ratio, fov_y, eye_sep):
@@ -333,7 +327,8 @@ def perspective_matrix_2point(d, aspect_ratio, fov_y, eye_sep):
         [0, 0, 0, 1]
     ])
 
-    return np.dot(perspective_matrix, translation_matrix)
+    # return perspective_matrix @ translation_matrix
+    return translation_matrix @ perspective_matrix
 
 
 # Example usage:
