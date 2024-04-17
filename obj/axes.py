@@ -2,7 +2,7 @@ import numpy as np
 from PIL import Image, ImageFont, ImageDraw
 
 from obj.constants import W_COL
-from obj.triangular import bresenham_line
+from obj.line import bresenham_line
 
 
 def transformer(vert, MVP, Viewport):

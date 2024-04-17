@@ -4,6 +4,7 @@ from numba import jit
 
 from obj.constants import *
 from obj.lightning import Lightning
+from obj.line import bresenham_line
 from obj.plane_intersection import clipping
 from transformation import bound_box, barycentric, normalize
 
@@ -16,23 +17,6 @@ class Errors(Flag):
     EMPTY_B = auto()
     EMPTY_Z = auto()
     CLIPPED = auto()
-
-
-def bresenham_line(start_point, end_point, bound):
-
-    delta = end_point - start_point
-    steps = max(abs(delta[:2])) + 1
-    # if steps == 1:
-    #     yield start_point
-    #     return
-    step_size = delta / steps
-    for i in range(int(steps)):
-        interpolated_point = start_point + i * step_size
-        if (interpolated_point[:2] > bound).any() or (interpolated_point[:2] < 0).any():
-            continue
-        if interpolated_point.shape[0] >= 3:
-            interpolated_point[2] = 1 / interpolated_point[2]
-        yield interpolated_point
 
 
 def triangle(p):
@@ -57,7 +41,7 @@ def rasterize(face, frame, z_buffer, light, camera, stencil_buffer=None, debug_c
     face.world_vertices = face.vertices.copy()
     face.vertices = face.vertices @ camera.MVP
 
-    clipping_space = face.world_vertices @ camera.MVP
+    clipping_space = face.world_vertices @ debug_camera.MVP
 
     depth = 1 / face.vertices[W_COL]  #     ↖
     face.vertices *= depth  # perspective division
@@ -97,10 +81,13 @@ def rasterize(face, frame, z_buffer, light, camera, stencil_buffer=None, debug_c
 
     Bi = (bar_screen >= 0).all(axis=1)
 
-    clip_idx = face.screen_perspective(bar_screen) @ clipping_space
-    Bi = Bi & (-clip_idx[W] <= clip_idx[X]) & (clip_idx[X] <= clip_idx[W]) & \
-              (-clip_idx[W] <= clip_idx[Y]) & (clip_idx[Y] <= clip_idx[W]) & \
-              (-clip_idx[W] <= clip_idx[Z]) & (clip_idx[Z] <= clip_idx[W])
+    if face.model.clip:
+        persp = face.screen_perspective(bar_screen)
+        if persp is not None and persp.size:
+            clip_idx = persp @ clipping_space
+            Bi = Bi & (-clip_idx[W] <= clip_idx[X]) & (clip_idx[X] <= clip_idx[W]) & \
+                      (-clip_idx[W] <= clip_idx[Y]) & (clip_idx[Y] <= clip_idx[W]) & \
+                      (-clip_idx[W] <= clip_idx[Z]) & (clip_idx[Z] <= clip_idx[W])
 
     bar_screen = bar_screen[Bi]
     if not bar_screen.size:
@@ -129,7 +116,7 @@ def rasterize(face, frame, z_buffer, light, camera, stencil_buffer=None, debug_c
     bar_screen = bar_screen[Zi]
     x, y = x[Zi], y[Zi]
 
-    if face.model.depth_test and stencil_buffer is not None:
+    if face.model.depth_test and stencil_buffer is None:
         z_buffer[x, y] = z[Zi]
 
     # Points
@@ -151,8 +138,10 @@ def general_shading(face, bar, light, camera, frame, x, y, first_pass):
     perspective_corrected_barycentric = face.screen_perspective(bar)
     if perspective_corrected_barycentric is None:
         return Errors.EMPTY_B
+    perspective_corrected_barycentric = perspective_corrected_barycentric[(perspective_corrected_barycentric >= 0).all(axis=1)]
+    if perspective_corrected_barycentric.size == 0:
+        return Errors.EMPTY_B
     object_color = face.get_object_color(perspective_corrected_barycentric)
-    # fragment_position = perspective_corrected_barycentric @ face.world_vertices[XYZ]
     fragment_position = perspective_corrected_barycentric @ face.world_vertices[XYZ]
     attenuation = light.attenuation(fragment_position)
     if first_pass:
@@ -382,9 +371,9 @@ def resterize_quadrangle(quad, z_buffer, stencil_buffer, frame, camera):
     else:
         stencil_buffer[x, y] -= 1
 
-    # frame[x, y] = frame[x, y] * 0.75 + np.array([0.25, 0.25, 0.25]) * 0.25
+    # frame[x, y] = frame[x, y] * 0.5 + np.array([0.25, 0.25, 0.25])
 
-# @jit(nopython=True)
+
 def points_inside_polygon(points, vs):
     x, y = points[X], points[Y]
     x_vs = vs[X]
@@ -402,32 +391,9 @@ def points_inside_polygon(points, vs):
 
     return inside
 
+
 def mix(x, y, a):
     """
     Linearly interpolate between x and y based on a (alpha).
     """
     return x * (1 - a) + y * a
-
-
-# @jit(nopython=True)
-# def ray_tracing_numpy_numba(points,poly):
-#     x,y = points[:,0], points[:,1]
-#     n = len(poly)
-#     inside = np.zeros(len(x),np.bool_)
-#     p2x = 0.0
-#     p2y = 0.0
-#     p1x,p1y = poly[0]
-#     for i in range(n+1):
-#         p2x,p2y = poly[i % n]
-#         idx = np.nonzero((y > min(p1y,p2y)) & (y <= max(p1y,p2y)) & (x <= max(p1x,p2x)))[0]
-#         if len(idx):    # <-- Fixed here. If idx is null skip comparisons below.
-#             if p1y != p2y:
-#                 xints = (y[idx]-p1y)*(p2x-p1x)/(p2y-p1y)+p1x
-#             if p1x == p2x:
-#                 inside[idx] = ~inside[idx]
-#             else:
-#                 idxx = idx[x[idx] <= xints]
-#                 inside[idxx] = ~inside[idxx]
-#
-#         p1x,p1y = p2x,p2y
-#     return inside

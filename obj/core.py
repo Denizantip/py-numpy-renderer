@@ -149,7 +149,7 @@ class Face:
     def get_UV(self, shape, perspective_bar):
         v = (perspective_bar @ self.uv[U] * shape[1] - 1).astype(int)
         u = ((1.0 - (perspective_bar @ self.uv[V])) * shape[0] - 1).astype(int)
-        return u, v
+        return np.array((u, v))
 
     def get_specular(self, bar):
         if hasattr(self.material, 'map_Ks'):
@@ -176,7 +176,7 @@ class Face:
             if UV is None:
                 return
             U, V = UV
-            object_color = self.material.map_Kd[U, V]
+            object_color = self.material.map_Kd[U-1, V-1]
         else:
             object_color = self.material.Kd
 
@@ -589,7 +589,7 @@ class Bound:
             sub_model.clip = False
             sub_model = sub_model @ scale(0.1)
             sub_model = sub_model @ np.linalg.inv(value.lookat)
-            sub_model.normals = sub_model.normals @ np.linalg.inv(value.lookat[mat3x3])
+            sub_model.normals = -sub_model.normals @ np.linalg.inv(value.lookat[mat3x3])
             instance.add_model(sub_model)
 
     def __get__(self, instance: 'Scene', owner):
@@ -663,25 +663,32 @@ class Scene:
         #                     face.vertices = polygon_vertices[idx]
         #                     rasterize(face, frame, z_buffer, self.light, self.camera)
         #
-        # # second pass to build shadow volumes
-        # ## fill the stencil buffer
-        # for model in self.models:
-        #     for edge in model.silhouette:
-        #         A, B = edge
-        #         A, B = model.vertices[A], model.vertices[B]
-        #         if self.light.light_type == Lightning.POINT_LIGHTNING:
-        #             C, D = (A + 1000 * normalize(A - (*self.light.position, 1)).squeeze(),
-        #                     B + 1000 * normalize(B - (*self.light.position, 1)).squeeze())
-        #         else:
-        #             C, D = (A + (*self.light.direction * -1000, 1),
-        #                     B + (*self.light.direction * -1000, 1))
-        #
-        #         quad = np.array((A, B, D, C))
-        #         resterize_quadrangle(quad, z_buffer, stencil_buffer, frame, self.camera)
+
 
         for model in self.models:
             for face in model.faces:
-                rasterize(face, frame, z_buffer, self.light, self.debug_camera, stencil_buffer)#, self.debug_camera)
+                shadow_volumes(face, self.light, model.silhouette)
+                rasterize(face, frame, z_buffer, self.light, self.camera, debug_camera=self.debug_camera)#, self.debug_camera)
+
+        # second pass to build shadow volumes
+        ## fill the stencil buffer
+        for model in self.models:
+            for edge in model.silhouette:
+                A, B = edge
+                A, B = model.vertices[A], model.vertices[B]
+                if self.light.light_type == Lightning.POINT_LIGHTNING:
+                    C, D = (A + 1000 * normalize(A - (*self.light.position, 1)).squeeze(),
+                            B + 1000 * normalize(B - (*self.light.position, 1)).squeeze())
+                else:
+                    C, D = (A + (*self.light.direction * -1000, 1),
+                            B + (*self.light.direction * -1000, 1))
+
+                quad = np.array((A, B, D, C))
+                resterize_quadrangle(quad, z_buffer, stencil_buffer, frame, self.camera)
+        for model in self.models:
+            for face in model.faces:
+                shadow_volumes(face, self.light, model.silhouette)
+                rasterize(face, frame, z_buffer, self.light, self.camera, stencil_buffer, debug_camera=self.debug_camera)  # , self.debug_camera)
 
         # third pass render other light except shadowed places
         # for model in self.models:

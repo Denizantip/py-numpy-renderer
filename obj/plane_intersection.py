@@ -72,24 +72,6 @@ def clipping(polygon_vertices, clipping_planes):
         result_polygon = clipped_polygon
     return np.array(result_polygon)
 
-def gen_idx(rows, cols):
-    return (([(i, j), ((i + 1) % rows, j)]) for i in range(cols) for j in range(rows))
-
-def clip2(polygon, planes):
-    result_polygon = polygon
-    visibility = polygon @ planes.T >= 0
-    rows, cols = visibility.shape
-    idxs = gen_idx(rows, cols)
-    for curr, next in idxs:
-        new_polygon = []
-        if visibility[curr]:
-            new_polygon.append(polygon[curr[0]])
-        if np.logical_xor(visibility[(curr, next)]):
-            intersection_point = line_plane_intersection(polygon[curr[0]], polygon[next[0]], planes[curr[1]])
-            if intersection_point is not None:
-                new_polygon.append(intersection_point)
-        result_polygon = new_polygon
-    return np.array(result_polygon)
 
 def get_parameterized(planes):
     """
@@ -100,3 +82,30 @@ def get_parameterized(planes):
         vars = 'xyz '
         print(' + '.join((''.join((f"{coef:.2f}", var)) for coef, var in zip(plane, vars))).replace("+ -", "- "), "= 0",
               sep='')
+
+#########################################################
+# All this kind of code is made for Sutherland hodgman clipping
+# Below is example of usage:
+# mvp_planes = extract_frustum_planes(self.camera.MVP)
+# for model in self.models:
+#     for face in model.faces:
+#         # Fil up model silhouette.
+#         visible_all = (face.vertices @ mvp_planes.T >= 0).all()
+#         if visible_all:  # all vertices are visible (Inside view frustum)
+#             rasterize(face, frame, z_buffer, self.light, self.camera)
+#         else:  # some vertices are visible
+#             polygon_vertices = clipping(face.vertices, mvp_planes) if model.clip else face.vertices
+#             if len(polygon_vertices):
+#                 bar = barycentric(*face.vertices[XYZ], polygon_vertices[XYZ])
+#                 uvs = face.uv
+#                 if bar is None:
+#                     continue
+#                 if uvs is not None:
+#                     uvs = bar @ uvs
+#                 normals = face.get_normals(bar)
+#
+#                 for idx in tringulate_args(polygon_vertices.shape[0]):
+#                     face.uv = uvs[idx] if uvs is not None else None
+#                     face.normals = normals[idx]
+#                     face.vertices = polygon_vertices[idx]
+#                     rasterize(face, frame, z_buffer, self.light, self.camera)
