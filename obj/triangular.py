@@ -85,9 +85,9 @@ def rasterize(face, frame, z_buffer, light, camera, stencil_buffer=None, debug_c
         persp = face.screen_perspective(bar_screen)
         if persp is not None and persp.size:
             clip_idx = persp @ clipping_space
-            Bi = Bi & (-clip_idx[W] <= clip_idx[X]) & (clip_idx[X] <= clip_idx[W]) & \
-                      (-clip_idx[W] <= clip_idx[Y]) & (clip_idx[Y] <= clip_idx[W]) & \
-                      (-clip_idx[W] <= clip_idx[Z]) & (clip_idx[Z] <= clip_idx[W])
+            Bi = Bi & (-clip_idx[W] < clip_idx[X]) & (clip_idx[X] < clip_idx[W]) & \
+                      (-clip_idx[W] < clip_idx[Y]) & (clip_idx[Y] < clip_idx[W]) & \
+                      (-clip_idx[W] < clip_idx[Z]) & (clip_idx[Z] < clip_idx[W])
 
     bar_screen = bar_screen[Bi]
     if not bar_screen.size:

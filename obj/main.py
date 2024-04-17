@@ -47,7 +47,7 @@ if __name__ == "__main__":
     deer = deer @ scale(0.001) @ translation([0, 0, 1])
     # deer.vertices[:, 1] -= 1
     floor = Model.load_model("floor.obj")
-    floor.vertices[..., [0, 2]] = floor.vertices[..., [0, 2]] * 4
+    # floor.vertices[..., [0, 2]] = floor.vertices[..., [0, 2]] * 4
     floor.textures.register('diffuse', 'floor_diffuse.tga', normalize=False)
     # floor.textures.register('diffuse', 'grid.tga', normalize=False)
     # suit = Model.load_model("suit.obj")
@@ -72,20 +72,20 @@ if __name__ == "__main__":
                   specular_strength=0.5
                   )
 
-    camera = Camera((0, 0, 5), up=np.array((0, 1, 0)),
+    camera = Camera((1.1, 1.1, 3), up=np.array((0, 1, 0)),
                     show=False,
-                    fovy=90,
+                    fovy=45,
                     near=0.0001,
-                    far=2000,
-                    backface_culling=True,
+                    far=40,
+                    backface_culling=False,
                     projection_type=PROJECTION_TYPE.PERSPECTIVE,
                     center=(0, 0, 0)
                     )
 
     camera2 = Camera((1, 1, 0), up=np.array((0, 1, 0)),
                      show=False,
-                     fovy=45,
-                     near=0.2,
+                     fovy=150,
+                     near=0.0001,
                      far=6,
                      backface_culling=True,
                      center=(0, 0, 0),
@@ -125,7 +125,7 @@ if __name__ == "__main__":
                   resolution=(height, width),
                   system=SYSTEM.RH,
                   subsystem=SUBSYSTEM.OPENGL)
-    # scene.add_model(diablo)
+    scene.add_model(diablo)
     scene.add_model(floor)
     # scene.add_model(deer)
     # scene.add_model(head)

@@ -24,7 +24,7 @@ def line_plane_intersection(line_point1, line_point2, plane_coefficients):
 
 
 def is_visible(point, plane):
-    return plane @ point > 0
+    return plane @ point >= 0
 
 
 def extract_frustum_planes(matrix):
