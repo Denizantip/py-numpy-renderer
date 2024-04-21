@@ -1,6 +1,19 @@
 import numpy as np
 
 
+#  Plane coefficients
+A = (..., 0)  # pts[:, 0]
+B = (..., 1)  # pts[:, 1]
+C = (..., 2)  # pts[:, 2]
+D = (..., 3)  # pts[:, 3]
+
+left = 0
+right = 1
+bottom = 2
+top = 3
+near = 4
+far = 5
+
 def normalize_plane(plane):
     """
     If needed to get true distance from point to plane
@@ -34,12 +47,12 @@ def extract_frustum_planes(matrix):
     """
     planes = np.zeros((6, 4))
 
-    planes[0] = normalize_plane(matrix[:, 3] + matrix[:, 0])  # left
-    planes[1] = normalize_plane(matrix[:, 3] - matrix[:, 0])  # right
-    planes[2] = normalize_plane(matrix[:, 3] + matrix[:, 1])  # bottom
-    planes[3] = normalize_plane(matrix[:, 3] - matrix[:, 1])  # top
-    planes[4] = normalize_plane(matrix[:, 3] + matrix[:, 2])  # near
-    planes[5] = normalize_plane(matrix[:, 3] - matrix[:, 2])  # far
+    planes[left] = normalize_plane(matrix[D] + matrix[A])
+    planes[right] = normalize_plane(matrix[D] - matrix[A])
+    planes[bottom] = normalize_plane(matrix[D] + matrix[B])
+    planes[top] = normalize_plane(matrix[D] - matrix[B])
+    planes[near] = normalize_plane(matrix[D] + matrix[C])
+    planes[far] = normalize_plane(matrix[D] - matrix[C])
     return planes
 
 

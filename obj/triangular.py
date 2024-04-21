@@ -1,6 +1,7 @@
 from enum import Flag, auto
 from matplotlib.path import Path as mplPath
 from numba import jit
+from PIL import Image
 
 from obj.constants import *
 from obj.lightning import Lightning
@@ -19,16 +20,10 @@ class Errors(Flag):
     CLIPPED = auto()
 
 
-def triangle(p):
-    length = len(p)
-    for i in range(length):
-        yield p[i], p[i - length + 1]
-
-
 def make_triangles(p):
     length = len(p)
     for i in range(length):
-        yield p[i], p[i - length + 1]
+        yield p[i], p[(i + 1) % length]
 
 
 def rasterize(face, frame, z_buffer, light, camera, stencil_buffer=None, debug_camera=None):
@@ -42,13 +37,14 @@ def rasterize(face, frame, z_buffer, light, camera, stencil_buffer=None, debug_c
     face.vertices = face.vertices @ camera.MVP
 
     clipping_space = face.world_vertices @ debug_camera.MVP
+    # clipping_space = face.world_vertices @ camera.MVP
 
     depth = 1 / face.vertices[W_COL]  #     ↖
     face.vertices *= depth  # perspective division
     face.vertices = face.vertices @ camera.viewport
     face.vertices[W_COL] = depth
 
-    if camera.backface_culling and face.test[2] < 0:
+    if camera.backface_culling and face.unit_normal_current_space[2] < 0:
         return Errors.BACK_FACE_CULLING
 
     height, width, _ = frame.shape
@@ -91,11 +87,12 @@ def rasterize(face, frame, z_buffer, light, camera, stencil_buffer=None, debug_c
 
     bar_screen = bar_screen[Bi]
     if not bar_screen.size:
-        return Errors.EMPTY_B
+        return Errors.CLIPPED
 
     y, x = p[Bi].T
     # y = np.floor(bar_screen @ face.vertices[X]).astype(int)
     # x = np.floor(bar_screen @ face.vertices[Y]).astype(int)
+    face.linearize_z(camera)
     z = bar_screen @ face.vertices[Z]
 
     if camera.scene.system == SYSTEM.RH:
@@ -116,14 +113,14 @@ def rasterize(face, frame, z_buffer, light, camera, stencil_buffer=None, debug_c
     bar_screen = bar_screen[Zi]
     x, y = x[Zi], y[Zi]
 
-    if face.model.depth_test and stencil_buffer is None:
+    if face.model.depth_test and stencil_buffer is not None:
         z_buffer[x, y] = z[Zi]
 
     # Points
     # points_only(face, camera, image)
 
     # Wireframe render
-    # wireframe_shading(face, camera, frame, z_buffer)
+    # wireframe_shading(face, frame, z_buffer)
 
     #  General shading
     general_shading(face, bar_screen, light, camera, frame, x, y, first_pass=stencil_buffer is None)
@@ -175,7 +172,7 @@ def general_shading(face, bar, light, camera, frame, x, y, first_pass):
 
 def flat_shading(face, light, frame, x, y):
     """Tested"""
-    intensity = face.unit_normal @ light.direction
+    intensity = face.unit_normal_world_space @ light.direction
     frame[x, y] = intensity.clip(0.3, 1.) * 255
 
 
@@ -268,21 +265,16 @@ def pbr(face, light, camera, frame, bar, x, y):
     frame[x, y] = color
 
 
-def wireframe_shading(face, camera, frame, z_buffer):
-    if face.unit_normal[2] < 0:
-        return Errors.BACK_FACE_CULLING
-    for p1, p2 in make_triangles(face.vertices.astype(np.int32)):
-        for yy, xx, zz in bresenham_line(p1[XYZ], p2[XYZ], camera.resolution):
-
-            xx = max(0, min(frame.shape[0] - 1, int(xx)))
-            yy = max(0, min(frame.shape[1] - 1, int(yy)))
-            if (z_buffer[xx, yy] - 1 / zz) > 0:
-                frame[xx, yy] = (64, 64, 128)
-                z_buffer[xx, yy] = zz
+def wireframe_shading(face, frame, z_buffer):
+    for p1, p2 in make_triangles(face.vertices):
+        for yy, xx, zz in bresenham_line(p1[XYZ], p2[XYZ]):
+            if 0 < xx < frame.shape[1] - 1 and 0 < yy < frame.shape[0] - 1 and (z_buffer[int(xx), int(yy)] - zz) > 0:
+                frame[int(xx), int(yy)] = (64, 64, 128)
+                z_buffer[int(xx), int(yy)] = zz
 
 
 def points_only(face, camera, image):
-    if face.unit_normal @ -normalize(camera.position)[0] <= 0:
+    if face.unit_normal_world_space @ -normalize(camera.position)[0] <= 0:
         return Errors.BACK_FACE_CULLING
     for p1, p2 in make_triangles(face.vertices.astype(np.int32)):
         w = p1[2]
@@ -299,7 +291,7 @@ class Edge(tuple):
 
 
 def shadow_volumes(face, light, container):
-    if face.unit_normal @ light.position > 0:
+    if face.unit_normal_world_space @ light.position > 0:
         for i in range(3):  # triple edge: AB BC CA
             curr_i, next_i = i, (i + 1) % 3
             edge = Edge((face._vi[curr_i], face._vi[next_i]))

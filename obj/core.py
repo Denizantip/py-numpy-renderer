@@ -5,6 +5,7 @@ from os import PathLike
 
 from functools import cached_property
 from PIL import Image
+from matplotlib import pyplot as plt
 
 from obj.cube_map import CubeMap, fill_frame_from_skybox
 from obj.axes import draw_axis
@@ -12,8 +13,7 @@ from obj.frustums import draw_view_frustum
 
 from obj.materials import Material
 from obj.plane_intersection import extract_frustum_planes
-from obj.transformation import ViewPort, perspectives, scale, looka_at_translate, look_at_rotate_lh, look_at_rotate_rh, \
-    perspective_matrix_2point, perspective_matrix_3point
+from obj.transformation import ViewPort, perspectives, scale, looka_at_translate, look_at_rotate_lh, look_at_rotate_rh
 from triangular import *
 from numpy.typing import NDArray
 
@@ -76,15 +76,6 @@ def triangulate_int(poligon):
         yield np.array([poligon[0], *poligon[1 + i: 3 + i]], dtype=np.int32)
 
 
-def triangulate_float(poligon):
-    for i in range(len(poligon) - 2):
-        yield np.array([poligon[0], *poligon[1 + i: 3 + i]])
-
-
-def tringulate_args(el):
-    return [[0, start + 1, start + 2] for start in range(el - 2)]
-
-
 class TextureMaps:
     texture_map = {
         'diffuse': 'map_Kd',
@@ -136,20 +127,22 @@ class Face:
         self.material = instance.materials.get(instance.material_group[material[0]], instance.materials['default'])
 
     @property
-    def unit_normal(self) -> NDArray:
+    def unit_normal_world_space(self) -> NDArray:
         a, b, c = self.world_vertices[XYZ]
         return normalize(np.cross(b - a, c - a)).squeeze()
 
     @property
-    def test(self):
+    def unit_normal_current_space(self):
         "test in screen space O_o"
         a, b, c = self.vertices[XYZ]
         return normalize(np.cross(b - a, c - a)).squeeze()
 
     def get_UV(self, shape, perspective_bar):
-        v = (perspective_bar @ self.uv[U] * shape[1] - 1).astype(int)
-        u = ((1.0 - (perspective_bar @ self.uv[V])) * shape[0] - 1).astype(int)
-        return np.array((u, v))
+        # cause of rounding errors in the perspective division there still can be a case when there is no UV in
+        # range of texture resolution
+        v = (perspective_bar @ self.uv[U]).clip(max=1.) * (shape[1] - 1)
+        u = (1.0 - (perspective_bar @ self.uv[V])).clip(max=1.) * (shape[0] - 1)
+        return np.array((u, v)).astype(np.int32)
 
     def get_specular(self, bar):
         if hasattr(self.material, 'map_Ks'):
@@ -164,7 +157,6 @@ class Face:
     def screen_perspective(self, bar_screen):
         w_coord = bar_screen @ self.vertices[W_COL]
         perspective = bar_screen * self.vertices[W] / w_coord
-        # perspective = perspective[(perspective >= 0).all(axis=1)]
 
         if perspective.size:
             return perspective
@@ -176,7 +168,7 @@ class Face:
             if UV is None:
                 return
             U, V = UV
-            object_color = self.material.map_Kd[U-1, V-1]
+            object_color = self.material.map_Kd[U, V]
         else:
             object_color = self.material.Kd
 
@@ -194,7 +186,7 @@ class Face:
             norm = bar @ self.normals
 
         else:
-            norm = bar @ np.array([self.unit_normal] * 3)
+            norm = bar @ np.array([self.unit_normal_world_space] * 3)
 
         return normalize(norm).squeeze()
 
@@ -233,29 +225,8 @@ class Face:
         B[..., 2] = n
         return B
 
-    @staticmethod
-    def barycentric(vertices, p):
-        """
-        https://ceng2.ktu.edu.tr/~cakir/files/grafikler/Texture_Mapping.pdf
-        """
-        a, b, c = vertices.round()
-        v0 = b - a
-        v1 = c - a
-        v2 = p - a
-        d00 = np.float32(v0 @ v0)
-        d01 = np.float32(v0 @ v1)
-        d11 = np.float32(v1 @ v1)
-        d20 = v2 @ v0
-        d21 = v2 @ v1
-
-        denom = d00 * d11 - d01 * d01
-        if denom == 0:
-            return
-        invDenom = 1.0 / denom
-        v = (d11 * d20 - d01 * d21) * invDenom
-        w = (d00 * d21 - d01 * d20) * invDenom
-        u = 1.0 - v - w
-        return np.array([u, v, w]).T
+    def linearize_z(self, camera):
+        self.vertices[Z] = (2 * camera.near * camera.far) / (camera.far + camera.near - self.vertices[Z] * (camera.far - camera.near))
 
 
 class Model:
@@ -458,17 +429,6 @@ class TransformationMatrixMixin:
     def viewport(self):
         return ViewPort(self.scene.resolution, self.far, self.near, x_offset=self.x_offset, y_offset=self.y_offset)
 
-    def LinearizeDepth(self, depth):
-        # z = depth * 2 - 1
-        z = depth
-        result = (             2.0 * self.near * self.far /  # noqa
-                  # ------------------------------------------------------
-                      (self.far + self.near - z * (self.far - self.near))  )  # noqa
-        return result
-
-    def linearize_depth(self, z):
-        return -(2 * self.far * self.near) / (z * (self.far - self.near) - self.far - self.near)
-
 
 class Camera(PositionedObject, TransformationMatrixMixin):
     def __init__(self, position,
@@ -626,6 +586,7 @@ class Scene:
 
     def render(self):
         frame = np.zeros((*self.resolution, 3), dtype=np.float32)
+        # z_buffer = np.full(self.resolution, self.camera.far if self.system == SYSTEM.RH else self.camera.near, dtype=np.float64)
         z_buffer = np.full(self.resolution, np.inf if self.system == SYSTEM.RH else -np.inf, dtype=np.float64)
         stencil_buffer = np.zeros(self.resolution, dtype=np.int16)
         # mvp_planes = self.debug_camera.frustum_planes.copy()
@@ -638,99 +599,44 @@ class Scene:
         else:
             frame[:] = [64/255, 0.5, 198/255]
 
-        # first pass ambient light only
         # for model in self.models:
         #     for face in model.faces:
-        #         # Fil up model silhouette.
         #         shadow_volumes(face, self.light, model.silhouette)
-        #         visible_all = (face.vertices @ mvp_planes.T >= 0).all()
-        #         if visible_all:  # all vertices are visible (Inside view frustum)
-        #             rasterize(face, frame, z_buffer, self.light, self.camera)
-        #         else:  # some vertices are visible
-        #             polygon_vertices = clipping(face.vertices, mvp_planes) if model.clip else face.vertices
-        #             if len(polygon_vertices):
-        #                 bar = barycentric(*face.vertices[XYZ], polygon_vertices[XYZ])
-        #                 uvs = face.uv
-        #                 if bar is None:
-        #                     continue
-        #                 if uvs is not None:
-        #                     uvs = bar @ uvs
-        #                 normals = face.get_normals(bar)
+        #         rasterize(face, frame, z_buffer, self.light, self.camera, debug_camera=self.debug_camera)#, self.debug_camera)
         #
-        #                 for idx in tringulate_args(polygon_vertices.shape[0]):
-        #                     face.uv = uvs[idx] if uvs is not None else None
-        #                     face.normals = normals[idx]
-        #                     face.vertices = polygon_vertices[idx]
-        #                     rasterize(face, frame, z_buffer, self.light, self.camera)
-        #
-
-
-        for model in self.models:
-            for face in model.faces:
-                shadow_volumes(face, self.light, model.silhouette)
-                rasterize(face, frame, z_buffer, self.light, self.camera, debug_camera=self.debug_camera)#, self.debug_camera)
-
-        # second pass to build shadow volumes
-        ## fill the stencil buffer
-        for model in self.models:
-            for edge in model.silhouette:
-                A, B = edge
-                A, B = model.vertices[A], model.vertices[B]
-                if self.light.light_type == Lightning.POINT_LIGHTNING:
-                    C, D = (A + 1000 * normalize(A - (*self.light.position, 1)).squeeze(),
-                            B + 1000 * normalize(B - (*self.light.position, 1)).squeeze())
-                else:
-                    C, D = (A + (*self.light.direction * -1000, 1),
-                            B + (*self.light.direction * -1000, 1))
-
-                quad = np.array((A, B, D, C))
-                resterize_quadrangle(quad, z_buffer, stencil_buffer, frame, self.camera)
-        for model in self.models:
-            for face in model.faces:
-                shadow_volumes(face, self.light, model.silhouette)
-                rasterize(face, frame, z_buffer, self.light, self.camera, stencil_buffer, debug_camera=self.debug_camera)  # , self.debug_camera)
-
-        # third pass render other light except shadowed places
+        # # second pass to build shadow volumes
+        # ## fill the stencil buffer
         # for model in self.models:
-        #     total_faces = model._faces.shape[0]
-        #     rendered_faces = 0
-        #     errors_count = {err: 0 for err in Errors}
-        #
-        #     for face in model.faces:
-        #         visible_all = (face.vertices @ self.debug_camera.frustum_planes.T >= 0).all()
-        #         if visible_all:  # all vertices are visible (Inside view frustum)
-        #             error = rasterize(face, frame, z_buffer, self.light, self.camera, stencil_buffer)
-        #         else:  # some vertices are visible
-        #             polygon_vertices = clipping(face.vertices, self.debug_camera.frustum_planes) if model.clip else face.vertices
-        #             total_faces += len(polygon_vertices) % 3
-        #             if len(polygon_vertices):
-        #                 bar = barycentric(*face.vertices[XYZ], polygon_vertices[XYZ])
-        #                 uvs = face.uv
-        #                 if bar is None:
-        #                     continue
-        #                 if uvs is not None:
-        #                     uvs = bar @ uvs
-        #                 normals = face.get_normals(bar)
-        #
-        #                 for idx in tringulate_args(polygon_vertices.shape[0]):
-        #                     face.uv = uvs[idx] if uvs is not None else None
-        #                     face.normals = normals[idx]
-        #                     face.vertices = polygon_vertices[idx]
-        #                     error = rasterize(face, frame, z_buffer, self.light, self.camera, stencil_buffer)
-        #                     if error:
-        #                         errors_count[error] += 1
-        #                     else:
-        #                         rendered_faces += 1
-        #             else:
-        #                 error = Errors.CLIPPED
-        #         if error:
-        #             errors_count[error] += 1
+        #     for edge in model.silhouette:
+        #         A, B = edge
+        #         A, B = model.vertices[A], model.vertices[B]
+        #         if self.light.light_type == Lightning.POINT_LIGHTNING:
+        #             C, D = (A + 1000 * normalize(A - (*self.light.position, 1)).squeeze(),
+        #                     B + 1000 * normalize(B - (*self.light.position, 1)).squeeze())
         #         else:
-        #             rendered_faces += 1
-        #     print('Total faces', total_faces)
-        #     print('Face rendered', rendered_faces)
-        #     print('Discarded', errors_count)
+        #             C, D = (A + (*self.light.direction * -1000, 1),
+        #                     B + (*self.light.direction * -1000, 1))
+        #
+        #         quad = np.array((A, B, D, C))
+        #         resterize_quadrangle(quad, z_buffer, stencil_buffer, frame, self.camera)
 
+        for model in self.models:
+            total_faces = len(model._faces)
+            errors_count = {err: 0 for err in Errors}
+            rendered_faces = 0
+            for face in model.faces:
+                error = rasterize(face, frame, z_buffer, self.light, self.camera, stencil_buffer, debug_camera=self.debug_camera)  # , self.debug_camera)
+                if error:
+                    errors_count[error] += 1
+                else:
+                    rendered_faces += 1
+            print('Total faces', total_faces)
+            print('Face rendered', rendered_faces)
+            print('Discarded', errors_count)
         draw_view_frustum(frame, self.camera, self.debug_camera, z_buffer, 1 if self.system == SYSTEM.LH else -1)
+
         # frame = draw_axis(frame, self.camera, z_buffer, 1 if self.system == SYSTEM.LH else -1)
+        plt.figure(figsize=(10, 10))
+        plt.imshow(z_buffer[::-1])
+        plt.show()
         return (frame[::-1] ** 0.8 * 255).astype(np.uint8)

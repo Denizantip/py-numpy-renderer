@@ -2,7 +2,6 @@ import time
 from tkinter import Tk, Canvas, NW
 import numpy as np
 from PIL import ImageTk, Image
-from matplotlib import pyplot as plt
 
 from core import Camera, Light, Model, Scene
 from obj.constants import PROJECTION_TYPE
@@ -11,17 +10,17 @@ from obj.lightning import Lightning
 from transformation import scale, SYSTEM, SUBSYSTEM, translation
 
 if __name__ == "__main__":
-    np.set_printoptions(precision=3, suppress=True)
-    # teapot = Model.load_model("teapot.obj")
-    head = Model.load_model("african_head/african_head.obj")
-    head.textures.register("diffuse", "african_head/african_head_diffuse.tga", normalize=False)
+    np.set_printoptions(precision=6, suppress=True)
+    # samurai = Model.load_model("/home/denizantip/Documents/AndroidDocuments/AllModels.obj")
+    # head = Model.load_model("african_head/african_head.obj")
+    # head.textures.register("diffuse", "african_head/african_head_diffuse.tga", normalize=False)
     # head.textures.register("normals", "african_head/african_head_nm.tga")
-    head.textures.register("normals", "african_head/african_head_nm_tangent.tga", tangent=True)
-    head.textures.register("specular", "african_head/african_head_spec.tga", normalize=False)
+    # head.textures.register("normals", "african_head/african_head_nm_tangent.tga", tangent=True)
+    # head.textures.register("specular", "african_head/african_head_spec.tga", normalize=False)
 
-    head_eye_inner = Model.load_model("african_head/african_head_eye_inner.obj")
-    head_eye_inner.textures.register("diffuse", "african_head/african_head_eye_inner_diffuse.tga", normalize=False)
-    head_eye_inner.textures.register("normals", "african_head/african_head_eye_inner_nm_tangent.tga", tangent=True)
+    # head_eye_inner = Model.load_model("african_head/african_head_eye_inner.obj")
+    # head_eye_inner.textures.register("diffuse", "african_head/african_head_eye_inner_diffuse.tga", normalize=False)
+    # head_eye_inner.textures.register("normals", "african_head/african_head_eye_inner_nm_tangent.tga", tangent=True)
 
     # head_eye_outer = Model.load_model("african_head/african_head_eye_outer.obj")
     # head_eye_outer.textures.register("diffuse", "african_head/african_head_eye_outer_diffuse.tga", normalize=False)
@@ -31,20 +30,20 @@ if __name__ == "__main__":
     # stage = stage @ scale(0.5)
     # stage = stage @ translation([0, -1.2, 0])
     # katana = Model.load_model("katana.obj")
-    sword = Model.load_model("pbr/sword.obj")
-    sword = sword @ scale(0.2)
+    # sword = Model.load_model("pbr/sword.obj")
+    # sword = sword @ scale(0.2)
     # sword = sword @ translation((0, -100, 0))
 
     # katana.textures.register('diffuse', 'handgrip_color.jpg')
     # katana = katana @ scale(0.1)
     # minicooper = Model.load_model('minicooper.obj')
     cube = Model.load_model('obj_loader_test/cube.obj', shadowing=False)
-    cube.normals = -cube.normals
+    # cube.normals = -cube.normals
 
-    cube = cube @ scale(0.25)
+    # cube = cube @ scale(0.25)
 
-    deer = Model.load_model("deer.obj")
-    deer = deer @ scale(0.001) @ translation([0, 0, 1])
+    # deer = Model.load_model("deer.obj")
+    # deer = deer @ scale(0.001) @ translation([0, 0, 1])
     # deer.vertices[:, 1] -= 1
     floor = Model.load_model("floor.obj")
     # floor.vertices[..., [0, 2]] = floor.vertices[..., [0, 2]] * 4
@@ -61,36 +60,37 @@ if __name__ == "__main__":
     # diablo.textures.register("glow", 'diablo3_pose/diablo3_pose_glow.tga', normalize=False)
 
     # floor.vertices = floor.vertices @ scale(2)
-    light = Light((0, 4, 3),
+    light = Light((0, 50, 50),
                   light_type=Lightning.DIRECTIONAL_LIGHTNING,
                   show=False,
-                  center=(0, 0, 0),
+                  center=(0, 0.5, 0.5),
                   fovy=90,
-                  # linear=0.000000001,
-                  # quadratic=0.0000000001,
-                  ambient_strength=0.5,
-                  specular_strength=0.5
+                  linear=0.000000001,
+                  quadratic=0.0000000001,
+                  ambient_strength=0.1,
+                  specular_strength=0.1
                   )
 
-    camera = Camera((1.1, 1.1, 3), up=np.array((0, 1, 0)),
+    camera = Camera((5, -3, 4), up=np.array((0, 1, 0)),
                     show=False,
-                    fovy=45,
+                    fovy=90,
                     near=0.0001,
-                    far=40,
-                    backface_culling=False,
+                    far=400,
+                    backface_culling=True,
                     projection_type=PROJECTION_TYPE.PERSPECTIVE,
                     center=(0, 0, 0)
                     )
 
-    camera2 = Camera((1, 1, 0), up=np.array((0, 1, 0)),
+    camera2 = Camera((0, 3, 0.01), up=np.array((0, 1, 0)),
                      show=False,
-                     fovy=150,
-                     near=0.0001,
-                     far=6,
+                     fovy=75,
+                     near=1,
+                     far=4,
                      backface_culling=True,
                      center=(0, 0, 0),
                      projection_type=PROJECTION_TYPE.PERSPECTIVE,
                      )
+
     cube_map = CubeMap(back="skybox/back.jpg",
                        bottom="skybox/bottom.jpg",
                        front="skybox/front.jpg",
@@ -113,20 +113,20 @@ if __name__ == "__main__":
                              right="cubemap_debug/right.png",
                              normalize_input=True)
 
-    height, width = (1500, 2500)
+    height, width = (1500, 1500)
     scene = Scene(camera,
                   light,
                   shadows=True,
                   debug_camera=camera2,
                   # skymap=[64, 127, 198],
                   # skymap=cube_map_debug,
-                  skymap=cube_map,
+                  # skymap=cube_map,
                   # skymap=None,
                   resolution=(height, width),
                   system=SYSTEM.RH,
                   subsystem=SUBSYSTEM.OPENGL)
     scene.add_model(diablo)
-    scene.add_model(floor)
+    # scene.add_model(floor)
     # scene.add_model(deer)
     # scene.add_model(head)
     # scene.add_model(head_eye_inner)
@@ -134,7 +134,7 @@ if __name__ == "__main__":
 
     # scene.add_model(sword)
     # scene.add_model(stage)
-    # scene.add_model(minicooper)
+    # scene.add_model(samurai)
     # scene.add_model(katana)
     # scene.add_model(sword)
     # scene.add_model(teapot)

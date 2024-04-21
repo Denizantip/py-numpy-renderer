@@ -19,8 +19,8 @@ def barycentric(a, b, c, p):
     d00 = np.float32(v0 @ v0)
     d01 = np.float32(v0 @ v1)
     d11 = np.float32(v1 @ v1)
-    d20 = v2 @ v0
-    d21 = v2 @ v1
+    d20 = np.float32(v2 @ v0)
+    d21 = np.float32(v2 @ v1)
 
     denom = d00 * d11 - d01 * d01
     if denom == 0:
