@@ -562,7 +562,8 @@ class Scene:
 
     def __init__(
             self,
-            camera=Camera(position=(0, 0, 1), center=(0, 0, 0)),
+            camera=Camera(position=(0, 0, 1),
+                          center=(0, 0, 0)),
             light=Light(position=(1, 1, 1)),
             shadows=False,
             debug_camera=None,
@@ -633,6 +634,7 @@ class Scene:
             print('Total faces', total_faces)
             print('Face rendered', rendered_faces)
             print('Discarded', errors_count)
+        # TODO need to attach this function to camera
         draw_view_frustum(frame, self.camera, self.debug_camera, z_buffer, self.system)
         # frame = draw_axis(frame, self.camera, z_buffer, self.system)
         return (frame[::-1] ** 0.8 * 255).astype(np.uint8)

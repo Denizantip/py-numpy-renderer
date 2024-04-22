@@ -10,7 +10,7 @@ def bresenham_line(start_point, end_point):
         return bresenham_line(end_point, start_point)
     steps = max(abs(delta[XY]))
     if steps == 0:
-        return [start_point]
+        return start_point[None]
     step_size = delta / steps
 
     return start_point + np.arange(int(steps))[:, None] * step_size

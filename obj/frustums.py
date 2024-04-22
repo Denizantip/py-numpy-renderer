@@ -57,7 +57,7 @@ def draw_view_frustum(frame, camera, positioned_object, z_buffer, sign):
 
     for face in view_frustum_world[Frustum.faces]:
         face = clipping(face, planes)
-        if not face.size:
+        if face.shape[0] < 3:
             continue
         face = face @ camera.MVP
         face /= face[W_COL]

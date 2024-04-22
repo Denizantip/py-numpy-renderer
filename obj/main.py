@@ -71,21 +71,21 @@ if __name__ == "__main__":
                   specular_strength=0.1
                   )
 
-    camera = Camera((1, 0, 1.5), up=np.array((0, 1, 0)),
+    camera = Camera((0.5, 3, 5), up=np.array((0, 1, 0)),
                     show=False,
                     fovy=90,
                     near=0.0001,
                     far=400,
                     backface_culling=False,
                     projection_type=PROJECTION_TYPE.PERSPECTIVE,
-                    center=(4, -1, 4)
+                    center=(0, 0, 0)
                     )
 
     camera2 = Camera((0, 3, 0.01), up=np.array((0, 1, 0)),
-                     show=True,
-                     fovy=75,
+                     show=False,
+                     fovy=80,
                      near=1,
-                     far=2.5,
+                     far=3,
                      backface_culling=True,
                      center=(0, 0, 0),
                      projection_type=PROJECTION_TYPE.PERSPECTIVE,

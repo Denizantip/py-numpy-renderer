@@ -319,7 +319,7 @@ def quad_test(points, polygon, callback):
 def resterize_quadrangle(quad, z_buffer, stencil_buffer, frame, camera):
     quad = clipping(quad, camera.frustum_planes)
 
-    if not len(quad):
+    if quad.shape[0] < 3:
         return
 
     quad_ndc = quad @ camera.MVP
