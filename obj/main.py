@@ -55,12 +55,12 @@ if __name__ == "__main__":
     # diablo.normals = None
     diablo.textures.register('normals', 'diablo3_pose/diablo3_pose_nm_tangent.tga', tangent=True)
     # diablo.textures.register('normals', 'diablo3_pose/diablo3_pose_nm.tga')
-    diablo.textures.register("specular", 'diablo3_pose/diablo3_pose_spec.tga', normalize=False)
+    # diablo.textures.register("specular", 'diablo3_pose/diablo3_pose_spec.tga', normalize=False)
     diablo.textures.register("diffuse", 'diablo3_pose/diablo3_pose_diffuse.tga', normalize=False)
     # diablo.textures.register("glow", 'diablo3_pose/diablo3_pose_glow.tga', normalize=False)
 
     # floor.vertices = floor.vertices @ scale(2)
-    light = Light((0, 50, 50),
+    light = Light((5, 5, 0),
                   light_type=Lightning.DIRECTIONAL_LIGHTNING,
                   show=False,
                   center=(0, 0.5, 0.5),
@@ -71,21 +71,21 @@ if __name__ == "__main__":
                   specular_strength=0.1
                   )
 
-    camera = Camera((5, -3, 4), up=np.array((0, 1, 0)),
+    camera = Camera((1, 0, 1.5), up=np.array((0, 1, 0)),
                     show=False,
                     fovy=90,
                     near=0.0001,
                     far=400,
-                    backface_culling=True,
+                    backface_culling=False,
                     projection_type=PROJECTION_TYPE.PERSPECTIVE,
-                    center=(0, 0, 0)
+                    center=(4, -1, 4)
                     )
 
     camera2 = Camera((0, 3, 0.01), up=np.array((0, 1, 0)),
-                     show=False,
+                     show=True,
                      fovy=75,
                      near=1,
-                     far=4,
+                     far=2.5,
                      backface_culling=True,
                      center=(0, 0, 0),
                      projection_type=PROJECTION_TYPE.PERSPECTIVE,
@@ -123,10 +123,10 @@ if __name__ == "__main__":
                   # skymap=cube_map,
                   # skymap=None,
                   resolution=(height, width),
-                  system=SYSTEM.RH,
+                  system=SYSTEM.LH,
                   subsystem=SUBSYSTEM.OPENGL)
     scene.add_model(diablo)
-    # scene.add_model(floor)
+    scene.add_model(floor)
     # scene.add_model(deer)
     # scene.add_model(head)
     # scene.add_model(head_eye_inner)

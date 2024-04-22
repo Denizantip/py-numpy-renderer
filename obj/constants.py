@@ -27,8 +27,8 @@ class SUBSYSTEM:
 
 
 class SYSTEM:
-    LH = 1
-    RH = 2
+    LH = -1
+    RH = 1
 
 
 class Projection:

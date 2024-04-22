@@ -59,11 +59,11 @@ def draw_axis(frame, camera, z_buffer, sign):
     frame = np.array(image)
 
     for (start, end), color in zip([x_axis, y_axis, z_axis], [R, G, B]):
-        for yy, xx, zz in bresenham_line(start[:3], end[:3], camera.scene.resolution):
+        for yy, xx, zz in bresenham_line(start[:3], end[:3]):
             for i in range(3):
                 xx = max(0, min(frame.shape[0] - 4, int(xx)))
                 yy = max(0, min(frame.shape[1] - 4, int(yy)))
-                if (z_buffer[xx + i, yy + i] - 1 / zz) * sign < 0:
+                if (z_buffer[xx + i, yy + i] - 1 / zz) * sign > 0:
                     frame[xx + i, yy + i] = color
                     z_buffer[xx + i, yy + i] = zz
     return frame / 255

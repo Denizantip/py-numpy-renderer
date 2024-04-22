@@ -10,17 +10,16 @@ class Frustum:
     Cube in clip space
         A                 B
           o-------------o
-         /|    +       /|
-        / |    |      / |
-    C  o-------------o D|
-       |  |    |     |  |
-       |G o----|-----|--o H
-       | /     |_____|_/_________ x
-       |/      /     |/
-       o------/------o
-    E        /       F
-            z               X,    Y,    Z,   W
-"""
+         /|            /|            y
+        / |           / |            |1
+    C  o-------------o D|            |
+       |  |          |  |            |_________ x
+       |G o----------|--o H         /0        1
+       | /           | /           /
+       |/            |/           /1
+       o-------------o           z
+    E                F
+                            X,    Y,    Z,   W     """
     vertices = np.array([[-1.0, -1.0,  1.0, 1.0],   # E   0
                          [ 1.0, -1.0,  1.0, 1.0],   # F   1
                          [-1.0,  1.0,  1.0, 1.0],   # C   2
@@ -48,6 +47,13 @@ def draw_view_frustum(frame, camera, positioned_object, z_buffer, sign):
     view_frustum_world = Frustum.vertices @ np.linalg.inv(positioned_object.MVP)
     view_frustum_world /= view_frustum_world[W_COL]
     planes = camera.frustum_planes
+    color = np.array((1., 0., 0.))
+
+    test = np.append(camera.position, 1) @ positioned_object.MVP
+    is_camera_inside_view_frustum = (-test[W] < test[X] < test[W] and
+                                     -test[W] < test[Y] < test[W] and
+                                     -test[W] < test[Z] < test[W]
+                                     )
 
     for face in view_frustum_world[Frustum.faces]:
         face = clipping(face, planes)
@@ -58,8 +64,7 @@ def draw_view_frustum(frame, camera, positioned_object, z_buffer, sign):
         face = face @ camera.viewport
 
         a, b, c, *_ = face[XYZ]
-        n = normalize(np.cross(b - a, c - a)).squeeze()
-        n = camera.direction @ camera.MVP[mat3x3] @ n
+        n = np.cross(b - a, c - a)
 
         face[Z] = (                 (2 * camera.near * camera.far) /  # noqa
         #         -------------------------------------------------------------------
@@ -70,25 +75,29 @@ def draw_view_frustum(frame, camera, positioned_object, z_buffer, sign):
             start = face[i]
             end = face[(i + 1) % l]
             pxls = bresenham_line(start, end)
-            if n > 0:
-                mask = np.bitwise_and(np.arange(len(pxls)) // 10, 1, dtype=np.int8).view(np.bool_)
+            if n[2] > 0 and not is_camera_inside_view_frustum:
+                #  Found this idea myself. pxls array contains indexes of line.
+                # Take odd chunk of indexes from floor division of dashed line length
+                mask = np.bitwise_and(np.arange(len(pxls)) // 13, 1, dtype=np.int8).view(np.bool_)
                 pxls = pxls[mask]
 
             y, x, z, w = pxls.T
             x = x.astype(np.int32) - 1
             y = y.astype(np.int32) - 1
-            idx = ((z_buffer[x, y] - z) * sign <= 0)
+            idx = ((z_buffer[x, y] - z) * sign >= 0)
             x = x[idx]
             y = y[idx]
             z = z[idx]
+
             z_buffer[x, y] = z
-            frame[x, y] = (1., 0., 0.)
+            frame[x, y] = color
             clip_x, clip_y = np.array(camera.scene.resolution) - 1
             # Lightweight AntiAliased line
+
             for i in [-1, 1]:
                 z_buffer[np.clip(x + i, a_min=0, a_max=clip_x), y] = z
                 z_buffer[x, np.clip(y + i, a_min=0, a_max=clip_y)] = z
                 frame[np.clip(x + i, a_min=0, a_max=clip_x), y] = (frame[np.clip(x + i, a_min=0, a_max=clip_x), y]
-                                                                   * 0.5 + (.5, 0., 0.))
+                                                                   * 0.5 + color / 2)
                 frame[x, np.clip(y + i, a_min=0, a_max=clip_y)] = (frame[x, np.clip(y + i, a_min=0, a_max=clip_y)]
-                                                                   * 0.5 + (.5, 0., 0.))
+                                                                   * 0.5 + color / 2)

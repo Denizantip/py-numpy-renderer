@@ -51,7 +51,7 @@ class Material:
     Ks = np.array((1., 1., 1.))  # specular color
     d = 1.0  # alpha
     Tr = 0  # alpha
-    Ns = 16  # Ks exponent. Shininess factor [1 -1000]
+    Ns = 64  # Ks exponent. Shininess factor [1 -1000]
     illum = 1  # n
 
     def __setattr__(self, key, value):

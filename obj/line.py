@@ -5,8 +5,9 @@ from obj.constants import XY, W, W_COL, X, Y, Z
 
 def bresenham_line(start_point, end_point):
     delta = end_point - start_point
-    # if delta[X] > 0:
-    #     delta = start_point - end_point
+    if delta[X] > 0:
+        # Always draw line from right to left. Long story why O_o.
+        return bresenham_line(end_point, start_point)
     steps = max(abs(delta[XY]))
     if steps == 0:
         return [start_point]

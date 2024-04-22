@@ -36,8 +36,8 @@ def rasterize(face, frame, z_buffer, light, camera, stencil_buffer=None, debug_c
     face.world_vertices = face.vertices.copy()
     face.vertices = face.vertices @ camera.MVP
 
-    clipping_space = face.world_vertices @ debug_camera.MVP
-    # clipping_space = face.world_vertices @ camera.MVP
+    clipping_space_debug = face.world_vertices @ debug_camera.MVP
+    clipping_space = face.world_vertices @ camera.MVP
 
     depth = 1 / face.vertices[W_COL]  #     ↖
     face.vertices *= depth  # perspective division
@@ -80,10 +80,11 @@ def rasterize(face, frame, z_buffer, light, camera, stencil_buffer=None, debug_c
     if face.model.clip:
         persp = face.screen_perspective(bar_screen)
         if persp is not None and persp.size:
-            clip_idx = persp @ clipping_space
-            Bi = Bi & (-clip_idx[W] < clip_idx[X]) & (clip_idx[X] < clip_idx[W]) & \
-                      (-clip_idx[W] < clip_idx[Y]) & (clip_idx[Y] < clip_idx[W]) & \
-                      (-clip_idx[W] < clip_idx[Z]) & (clip_idx[Z] < clip_idx[W])
+            for clip_space in (clipping_space, clipping_space_debug):
+                clip_idx = persp @ clip_space
+                Bi &= ((-clip_idx[W] < clip_idx[X]) & (clip_idx[X] < clip_idx[W]) &
+                      (-clip_idx[W] < clip_idx[Y]) & (clip_idx[Y] < clip_idx[W]) &
+                      (-clip_idx[W] < clip_idx[Z]) & (clip_idx[Z] < clip_idx[W]))
 
     bar_screen = bar_screen[Bi]
     if not bar_screen.size:
@@ -92,7 +93,7 @@ def rasterize(face, frame, z_buffer, light, camera, stencil_buffer=None, debug_c
     y, x = p[Bi].T
     # y = np.floor(bar_screen @ face.vertices[X]).astype(int)
     # x = np.floor(bar_screen @ face.vertices[Y]).astype(int)
-    face.linearize_z(camera)
+    face.vertices[Z] = face.linearize_z(face.vertices[Z], camera)
     z = bar_screen @ face.vertices[Z]
 
     if camera.scene.system == SYSTEM.RH:
@@ -113,7 +114,7 @@ def rasterize(face, frame, z_buffer, light, camera, stencil_buffer=None, debug_c
     bar_screen = bar_screen[Zi]
     x, y = x[Zi], y[Zi]
 
-    if face.model.depth_test and stencil_buffer is not None:
+    if face.model.depth_test and stencil_buffer is None:
         z_buffer[x, y] = z[Zi]
 
     # Points
@@ -348,6 +349,9 @@ def resterize_quadrangle(quad, z_buffer, stencil_buffer, frame, camera):
     y, x = p[Bi].T
 
     z = -(Ax * y + By * x + D) / Cz
+    z = (                 (2 * camera.near * camera.far) /  # noqa
+        #         -------------------------------------------------------------------
+                   (camera.far + camera.near - z * (camera.far - camera.near)))
 
     if camera.scene.system == SYSTEM.RH:
         Zi = (z_buffer[x, y] >= z)

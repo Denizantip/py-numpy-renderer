@@ -4,8 +4,6 @@ from typing import Iterator, Optional, List, Iterable
 from os import PathLike
 
 from functools import cached_property
-from PIL import Image
-from matplotlib import pyplot as plt
 
 from obj.cube_map import CubeMap, fill_frame_from_skybox
 from obj.axes import draw_axis
@@ -225,8 +223,9 @@ class Face:
         B[..., 2] = n
         return B
 
-    def linearize_z(self, camera):
-        self.vertices[Z] = (2 * camera.near * camera.far) / (camera.far + camera.near - self.vertices[Z] * (camera.far - camera.near))
+    @staticmethod
+    def linearize_z(depth, camera):
+        return (2 * camera.near * camera.far) / (camera.far + camera.near - depth * (camera.far - camera.near))
 
 
 class Model:
@@ -587,7 +586,7 @@ class Scene:
     def render(self):
         frame = np.zeros((*self.resolution, 3), dtype=np.float32)
         # z_buffer = np.full(self.resolution, self.camera.far if self.system == SYSTEM.RH else self.camera.near, dtype=np.float64)
-        z_buffer = np.full(self.resolution, np.inf if self.system == SYSTEM.RH else -np.inf, dtype=np.float64)
+        z_buffer = np.full(self.resolution, np.inf * self.system, dtype=np.float64)
         stencil_buffer = np.zeros(self.resolution, dtype=np.int16)
         # mvp_planes = self.debug_camera.frustum_planes.copy()
         mvp_planes = self.camera.frustum_planes
@@ -599,26 +598,27 @@ class Scene:
         else:
             frame[:] = [64/255, 0.5, 198/255]
 
-        # for model in self.models:
-        #     for face in model.faces:
-        #         shadow_volumes(face, self.light, model.silhouette)
-        #         rasterize(face, frame, z_buffer, self.light, self.camera, debug_camera=self.debug_camera)#, self.debug_camera)
-        #
-        # # second pass to build shadow volumes
-        # ## fill the stencil buffer
-        # for model in self.models:
-        #     for edge in model.silhouette:
-        #         A, B = edge
-        #         A, B = model.vertices[A], model.vertices[B]
-        #         if self.light.light_type == Lightning.POINT_LIGHTNING:
-        #             C, D = (A + 1000 * normalize(A - (*self.light.position, 1)).squeeze(),
-        #                     B + 1000 * normalize(B - (*self.light.position, 1)).squeeze())
-        #         else:
-        #             C, D = (A + (*self.light.direction * -1000, 1),
-        #                     B + (*self.light.direction * -1000, 1))
-        #
-        #         quad = np.array((A, B, D, C))
-        #         resterize_quadrangle(quad, z_buffer, stencil_buffer, frame, self.camera)
+
+        for model in self.models:
+            for face in model.faces:
+                shadow_volumes(face, self.light, model.silhouette)
+                rasterize(face, frame, z_buffer, self.light, self.camera, debug_camera=self.debug_camera)#, self.debug_camera)
+
+        # second pass to build shadow volumes
+        ## fill the stencil buffer
+        for model in self.models:
+            for edge in model.silhouette:
+                A, B = edge
+                A, B = model.vertices[A], model.vertices[B]
+                if self.light.light_type == Lightning.POINT_LIGHTNING:
+                    C, D = (A + 1000 * normalize(A - (*self.light.position, 1)).squeeze(),
+                            B + 1000 * normalize(B - (*self.light.position, 1)).squeeze())
+                else:
+                    C, D = (A + (*self.light.direction * -1000, 1),
+                            B + (*self.light.direction * -1000, 1))
+
+                quad = np.array((A, B, D, C))
+                resterize_quadrangle(quad, z_buffer, stencil_buffer, frame, self.camera)
 
         for model in self.models:
             total_faces = len(model._faces)
@@ -633,10 +633,6 @@ class Scene:
             print('Total faces', total_faces)
             print('Face rendered', rendered_faces)
             print('Discarded', errors_count)
-        draw_view_frustum(frame, self.camera, self.debug_camera, z_buffer, 1 if self.system == SYSTEM.LH else -1)
-
-        # frame = draw_axis(frame, self.camera, z_buffer, 1 if self.system == SYSTEM.LH else -1)
-        plt.figure(figsize=(10, 10))
-        plt.imshow(z_buffer[::-1])
-        plt.show()
+        draw_view_frustum(frame, self.camera, self.debug_camera, z_buffer, self.system)
+        # frame = draw_axis(frame, self.camera, z_buffer, self.system)
         return (frame[::-1] ** 0.8 * 255).astype(np.uint8)
